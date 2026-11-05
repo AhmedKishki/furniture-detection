@@ -6,6 +6,8 @@ Typesetters call this text furniture. It belongs to the page rather than to the 
 
 ## How it works
 
+Most tools find furniture with a rule: a line that repeats, digits aside, near the top or bottom of most pages. Such a rule misses a running head that changes with each chapter and a stamp printed in the side margin, so this crate decides with a measure instead.
+
 Furniture is the text that other pages already tell you. The running head on page 41 repeats the one on page 39, and the page number on page 41 is the one on page 39 plus two, while a sentence of the body appears on no other page.
 
 The crate therefore asks, for every line, which is the cheapest way to write it down:
@@ -14,7 +16,7 @@ The crate therefore asks, for every line, which is the cheapest way to write it 
 2. as a copy of the line above it, which is how a numbered list describes itself;
 3. as a copy of the line at the same place on another page, with any number moved on by the pages in between.
 
-Each way costs a number of bits, and a line whose cheapest description is a copy from another page is furniture. The costs are fitted to each document, so the crate needs no threshold, pattern list, trained model or rule about where on the page furniture sits: a stamp in the side margin is found the same way as a page number at the foot.
+Each way costs a number of bits, and a line whose cheapest description is a copy from another page is furniture. The costs are fitted to each document, so the crate needs no threshold, pattern list, trained model or rule about where on the page furniture sits: a stamp in the side margin and a running head that changes with each chapter are found the same way as a page number at the foot.
 
 [docs/furniture-detection.md](docs/furniture-detection.md) explains the method from the basics, with worked examples.
 
@@ -90,6 +92,12 @@ Furniture stays in the text when no nearby page holds a cheap copy of it:
 - in a page number printed somewhere else on only a few pages, such as chapter openings, whose nearest copy is many pages away.
 
 [evals/furniture-detection.md](evals/furniture-detection.md) holds the full evaluation, with its harness and frozen inputs.
+
+## Other tools
+
+Other detectors compare lines across pages and keep those that repeat near the top or bottom, either between neighbouring pages ([Lin 2003](https://doi.org/10.1117/12.472833)) or over most of the document. Rust PDF converters such as [pdf-inspector](https://crates.io/crates/pdf-inspector) and [pdf-markdown](https://crates.io/crates/pdf-markdown) do this as one step of their conversion. Layout models such as [docling](https://github.com/docling-project/docling) label page headers and footers with a trained model instead; the evaluation above compares the crate with docling.
+
+This crate differs from both kinds. It decides by comparing description lengths, with no position bands, repetition thresholds or trained model, and it is a library of its own that takes its lines from any PDF reader.
 
 ## License
 
