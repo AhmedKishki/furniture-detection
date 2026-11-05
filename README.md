@@ -1,25 +1,33 @@
 # furniture-detection
 
-A printed page carries text that belongs to the page rather than to the book's argument: running heads and feet, page numbers (folios), a publisher's or repository's stamp at the foot of every page. Typesetters call it furniture. Left in extracted text, it splits sentences that run across a page break and fills search results with book titles and page numbers.
+Finds the running heads, page numbers and stamps on the pages of a PDF, so that you can leave them out of the extracted text.
 
-This crate takes the positioned text lines of a PDF's pages and returns the lines that are furniture. It does not read PDFs: the lines come from a PDF reader of your choice.
+Typesetters call this text furniture. It belongs to the page rather than to the book's argument, and left in the text it splits sentences that run across a page break and fills search results with book titles and page numbers. The crate takes the positioned text lines of a document's pages and tells you which lines are furniture. It does not read PDFs itself, so the lines come from a PDF reader of your choice.
 
-## What counts as furniture
+## How it works
 
-Furniture is the part of a page that other pages already tell you. A running head on page 41 repeats the running head on page 39, and the folio on page 41 is the folio on page 39 plus two. A sentence of the text is predicted by the words around it on its own page, but no other page holds it.
+Furniture is the text that other pages already tell you. The running head on page 41 repeats the one on page 39, and the page number on page 41 is the one on page 39 plus two, while a sentence of the body appears on no other page.
 
-The crate turns that difference into a measure by describing every line in three ways, each with a length in bits: by its own tokens, as a copy of the line above it in its column, and as a copy of the nearest line on another page. A line is furniture when the copy from another page is its shortest description. The parameters of the descriptions are fitted to the document being read rather than fixed in advance: there is no threshold, pattern list, trained model or rule about where on the page furniture sits. A stamp in the side margin and a running head that changes with each chapter are therefore found the same way as a folio at the foot of the page.
+The crate therefore asks, for every line, which is the cheapest way to write it down:
 
-## Adding it
+1. word by word, from how often its words and word pairs occur in the document;
+2. as a copy of the line above it, which is how a numbered list describes itself;
+3. as a copy of the line at the same place on another page, with any number moved on by the pages in between.
 
-The crate is not on crates.io, so add it as a git dependency:
+Each way costs a number of bits, and a line whose cheapest description is a copy from another page is furniture. The costs are fitted to each document, so the crate needs no threshold, pattern list, trained model or rule about where on the page furniture sits: a stamp in the side margin is found the same way as a page number at the foot.
+
+[docs/furniture-detection.md](docs/furniture-detection.md) explains the method from the basics, with worked examples.
+
+## Install
+
+The crate is not on crates.io yet, so add it from git:
 
 ```toml
 [dependencies]
 furniture-detection = { git = "https://github.com/AhmedKishki/furniture-detection" }
 ```
 
-It needs Rust 1.92 or later and depends only on `unicode-normalization`.
+It needs Rust 1.92 or later.
 
 ## Usage
 
@@ -62,39 +70,26 @@ let expected: HashSet<(u32, usize)> = (1..=4).flat_map(|n| [(n, 0), (n, 3)]).col
 assert_eq!(furniture(&pages), expected);
 ```
 
-The same example is the crate's documentation example, so `cargo test` compiles and runs it.
-
 ## Input and output
 
-```rust
-pub fn furniture(pages: &[Page]) -> HashSet<(u32, usize)>
+`furniture(&pages)` returns the `(page, index)` of every furniture line: its page's number and its index in that page's `lines`.
 
-pub struct Page { pub page: u32, pub lines: Vec<Line> }
-pub struct Line { pub text: String, pub left: f32, pub top: f32, pub right: f32, pub bottom: f32 }
-```
+- Give it the whole document at once, because it works by comparing pages.
+- Pass every page in reading order, numbered by its place in the document (1, 2, 3, …) rather than by its printed page number. A page without text goes in with no lines, because the search for copies assumes that the numbers have no gaps.
+- Give each line its text and its box in points, with the origin at the top of the page and y growing downward. PDF puts the origin at the bottom, so a box from `y0` up to `y1` there becomes `top = height - y1` and `bottom = height - y0`.
 
-A `Line` is one line of text with its box in points. The origin is at the top of the page and y grows downward, so `top < bottom`, and a line with a smaller y sits above one with a larger y. PDF's own coordinates put the origin at the bottom of the page, so a box from `y0` up to `y1` in those becomes `top = height - y1` and `bottom = height - y0`.
+## What to expect
 
-The pages must come in reading order with ascending page numbers. A page's number is its place in the document, not its printed folio, because a folio is expected to move on by the difference between two pages' numbers. Pass every page, with empty `lines` for a page without text, so that the numbers run without gaps. The search for copies relies on that: it tries pages nearest first by their position in the slice and stops early on the assumption that the page offset grows with that position, so a gap can make it stop before a page that is nearer by number.
+On 550 pages from 22 books, the crate found 97.3% of the items that docling's layout model labels as page headers and footers, along with repository stamps that docling missed. It also takes more real text for furniture than docling does, mostly short notes, citations and index lines that repeat their pattern at the same place a page or two apart: after every disagreement was judged by hand, it made 86 errors to docling's 48. Whole PDF extraction with the crate took 5 ms a page, where docling took 970 ms.
 
-`furniture` compares pages, so it takes the whole document at once. It returns the `(page, index)` of each furniture line: the `page` of its `Page` and its index in that page's `lines`. A line whose text is empty after normalisation is never furniture.
+Furniture stays in the text when no nearby page holds a cheap copy of it:
 
-## Limits
+- in a one-page document, which has no other page;
+- in a running head that the PDF reader splits differently on each page, such as `O NTO LOG Y` and `ON TO LOG Y`;
+- when the text changes on every page without a number that counts up;
+- in a page number printed somewhere else on only a few pages, such as chapter openings, whose nearest copy is many pages away.
 
-- A one-page document has no furniture, because the measure needs several pages that share furniture.
-- A copy must hold the same tokens, numbers aside. A letter-spaced running head that the PDF reader splits differently on each page (`O NTO LOG Y`, `ON TO LOG Y`) therefore has no copy, so it stays in the text.
-- Text that recurs at the same place on nearby pages is described as a copy, so it is taken for furniture: short note, citation and index lines with a common pattern, code repeated across listings, a title page printed twice. In the evaluation, note, citation and index lines are 46 of the measure's 86 errors.
-- Furniture whose text changes on every page without a number that moves with the page has no copy, so it stays.
-- A folio printed somewhere else on a few pages, such as chapter openings, can only copy from a distant page, so it may stay.
-
-## Cost
-
-On 22 books (7,235 pages), whole PDF extraction with this measure (reading the PDF, building lines and paragraphs, and finding furniture) took 5.0 ms per page with a mean peak memory of 92 MB on an 8-core laptop CPU. The detector is one part of that work, so it costs no more on its own.
-
-## Documentation
-
-- [docs/furniture-detection.md](docs/furniture-detection.md) explains the measure: the three descriptions and their codes, the decision by expectation–maximization, two worked examples, the limits and the references.
-- [evals/furniture-detection.md](evals/furniture-detection.md) compares it with docling's layout model on 550 pages of 22 books, with its harness and frozen inputs. The measure finds 97.3% of the items docling labels as furniture, but after every disagreement was judged by hand it makes 86 errors to docling's 48.
+[evals/furniture-detection.md](evals/furniture-detection.md) holds the full evaluation, with its harness and frozen inputs.
 
 ## License
 
