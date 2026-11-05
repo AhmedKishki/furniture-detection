@@ -1,0 +1,11 @@
+[package]
+name = "furniture-detection"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.92"
+license = "MIT"
+repository = "https://github.com/AhmedKishki/furniture-detection"
+description = "Finds the running heads, folios and other furniture of PDF pages by minimum description length."
+
+[dependencies]
+unicode-normalization = "0.1.26"
