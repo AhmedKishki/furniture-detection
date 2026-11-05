@@ -28,11 +28,11 @@ A line is furniture when the copy from another page is shortest. Every cost is f
 
 ## Install
 
-Add it from git; it needs Rust 1.92 or later.
+Add it to `Cargo.toml`; it needs Rust 1.92 or later.
 
 ```toml
 [dependencies]
-furniture-detection = { git = "https://github.com/AhmedKishki/furniture-detection" }
+furniture-detection = "0.1"
 ```
 
 ## Usage

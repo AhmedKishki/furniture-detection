@@ -5,6 +5,8 @@ edition = "2024"
 rust-version = "1.92"
 license = "MIT"
 repository = "https://github.com/AhmedKishki/furniture-detection"
+keywords = ["pdf", "header-footer", "text-extraction", "mdl", "document"]
+categories = ["text-processing", "algorithms"]
 description = "Finds the running heads, folios and other furniture of PDF pages by minimum description length."
 
 [dependencies]
