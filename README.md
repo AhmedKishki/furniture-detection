@@ -75,7 +75,7 @@ pub struct Line { pub text: String, pub left: f32, pub top: f32, pub right: f32,
 
 A `Line` is one line of text with its box in points. The origin is at the top of the page and y grows downward, so `top < bottom`, and a line with a smaller y sits above one with a larger y. PDF's own coordinates put the origin at the bottom of the page; a box from `y0` up to `y1` in those becomes `top = height - y1` and `bottom = height - y0`.
 
-The pages must come in reading order with ascending page numbers. A page's number is its place in the document, not its printed folio, because a folio is expected to move on by the difference between two pages' numbers. Numbers may skip pages, such as pages without text.
+The pages must come in reading order with ascending page numbers. A page's number is its place in the document, not its printed folio, because a folio is expected to move on by the difference between two pages' numbers. Pass every page, with empty `lines` for a page without text, so that the numbers run without gaps: the search for copies tries pages nearest first by their position in the slice and stops early on the assumption that the page offset grows with that position, so a gap can make it stop before a page that is nearer by number.
 
 `furniture` compares pages, so it takes the whole document at once. It returns the `(page, index)` of each furniture line: the `page` of its `Page` and its index in that page's `lines`. A line whose text is empty after normalisation is never furniture.
 
