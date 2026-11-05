@@ -1,26 +1,34 @@
 # furniture-detection
 
-Finds the furniture on a PDF's pages: running heads, page numbers and stamps. Left in extracted text, furniture splits sentences at page breaks and fills search results with book titles and page numbers. The crate takes each page's positioned text lines, from any PDF reader, and returns the lines that are furniture.
+Finds the furniture on a PDF's pages: the running heads, page numbers and stamps that repeat from page to page. Taking it out of extracted text keeps sentences whole across page breaks and keeps book titles and page numbers out of search results.
 
-## Why
+You give it each page's text lines with their positions, from any PDF reader, and it returns the lines that are furniture.
 
-Most tools, among them the Rust PDF converters [pdf-inspector](https://crates.io/crates/pdf-inspector) and [pdf-markdown](https://crates.io/crates/pdf-markdown), treat a line as furniture when it repeats, digits aside, near the top or bottom of the page. On 550 pages from 22 books, such a rule (repeating on at least half the pages, within the top or bottom 12%) found 44% of the furniture: running heads that change with each chapter repeat on too few pages, and stamps in the margin sit outside the bands. [Docling](https://github.com/docling-project/docling)'s layout model found 95%. This crate found 98%, without a model, and whole extraction took 5 ms a page where docling took 970 ms.
+## Results
 
-It pays with false alarms. 92% of what it flags is furniture, against 99% for docling, because short notes, citations and index lines that repeat their pattern a page or two apart look like furniture to it. [The evaluation](evals/furniture-detection.md) has the details.
+On 550 pages from 22 books, with every disagreement judged by hand:
+
+| | Furniture found | Correct flags | Time per page |
+|---|---|---|---|
+| furniture-detection | 98% | 92% | 5 ms |
+| docling's layout model | 95% | 99% | 970 ms |
+| Recurrence rule | 44% | 97% | |
+
+The recurrence rule takes a line for furniture when it repeats, digits aside, in the top or bottom 12% of at least half the pages, which is the kind of rule PDF converters such as [pdf-inspector](https://crates.io/crates/pdf-inspector) and [pdf-markdown](https://crates.io/crates/pdf-markdown) use. [The evaluation](evals/furniture-detection.md) gives the details.
 
 ## How it works
 
-Furniture is what other pages already tell you: the running head on page 41 repeats the one on page 39, and the page number on page 41 is page 39's plus two. The crate therefore writes each line down three ways and counts the bits each takes:
+Furniture is what other pages already tell you: the running head on page 41 repeats the one on page 39, and the page number on page 41 is page 39's plus two. The crate writes each line down three ways and counts the bits each takes:
 
 1. word by word, from how often its words and word pairs occur in the document;
 2. as a copy of the line above, which is how a numbered list describes itself;
 3. as a copy of the line at the same place on another page, with any number moved on by the pages in between.
 
-A line is furniture when the copy from another page is shortest. The costs are fitted to each document, so there is no threshold or position rule to tune. [docs/furniture-detection.md](docs/furniture-detection.md) explains the method from the basics.
+A line is furniture when the copy from another page is shortest. Every cost is fitted to the document at hand, so the crate adapts to each layout by itself. [docs/furniture-detection.md](docs/furniture-detection.md) explains the method from the basics.
 
 ## Install
 
-The crate is not on crates.io yet, so add it from git. It needs Rust 1.92 or later.
+Add it from git; it needs Rust 1.92 or later.
 
 ```toml
 [dependencies]
@@ -70,14 +78,10 @@ assert_eq!(furniture(&pages), expected);
 
 ## Input and output
 
-`furniture(&pages)` returns the `(page, index)` of each furniture line.
+`furniture(&pages)` takes the whole document and returns the `(page, index)` of each furniture line.
 
-- Pass every page of the document in reading order, numbered 1, 2, 3, … by position rather than by printed page number. A page without text goes in with no lines, because the search for copies assumes the numbers have no gaps.
+- Number the pages 1, 2, 3, … in reading order, by position rather than by printed page number, and include each page without text as a page with no lines, so that the numbering runs without gaps.
 - Give each line its text and its box in points, with the origin at the top of the page. PDF puts the origin at the bottom, so a box from `y0` up to `y1` becomes `top = height - y1` and `bottom = height - y0`.
-
-## Limits
-
-Furniture stays in the text when no nearby page holds a cheap copy of it: in a one-page document, in a running head that the PDF reader splits differently on each page (`O NTO LOG Y`, `ON TO LOG Y`), in text that changes on every page without a number that counts up, and in a page number printed elsewhere on only a few pages, such as chapter openings.
 
 ## License
 
