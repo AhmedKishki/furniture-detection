@@ -83,6 +83,8 @@ assert_eq!(furniture(&pages), expected);
 - Number the pages 1, 2, 3, … in reading order, by position rather than by printed page number, and include each page without text as a page with no lines, so that the numbering runs without gaps.
 - Give each line its text and its box in points, with the origin at the top of the page. PDF puts the origin at the bottom, so a box from `y0` up to `y1` becomes `top = height - y1` and `bottom = height - y0`.
 
+[docs/usage.md](docs/usage.md) gives these conventions in full for every type and field, with recipes for common tasks.
+
 ## License
 
 MIT. See [LICENSE](LICENSE).

@@ -23,7 +23,9 @@
 //!
 //! Every parameter (the weights of the token and number codes, the shares of
 //! the descriptions) is fitted to the book being read; nothing is a threshold.
-//! docs/furniture-detection.md explains the measure and its evaluation.
+//! docs/furniture-detection.md explains the measure and its evaluation, and
+//! docs/usage.md gives recipes for common tasks, such as converting a PDF
+//! reader's boxes.
 //!
 //! # Example
 //!
@@ -66,33 +68,66 @@
 //! assert_eq!(furniture(&pages), expected);
 //! ```
 
+#![warn(missing_docs)]
+
 use std::collections::{HashMap, HashSet};
 
 use crate::normalize::normalize;
 
 mod normalize;
 
-/// One line of text with its box in points, the origin at the top of the page
-/// and y growing downward, so `top < bottom` and a line with a smaller y sits
-/// above one with a larger y.
+/// One line of text and its box on the page.
+///
+/// The box is in points, the origin at the top-left corner of the page and y
+/// growing downward, so `top < bottom` and a line with a smaller y sits above
+/// one with a larger y. A PDF reader that measures y upward from the bottom of
+/// the page gives a box from `y0` up to `y1`; on a page `height` points tall,
+/// that box has `top = height - y1` and `bottom = height - y0`.
+///
+/// [`furniture`] places a line by the left edge, the horizontal centre and the
+/// right edge of its box, each at the box's vertical centre. It compares these
+/// positions only with each other, so any unit works if every page uses the
+/// same one.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Line {
+    /// The line's text as the PDF reader extracted it. [`furniture`] expands
+    /// Latin ligatures, drops soft hyphens, zero-width spaces, byte-order marks
+    /// and control characters other than whitespace, composes the text to NFC
+    /// and collapses whitespace, then splits it into words, numbers and
+    /// punctuation marks, ignoring case and spaces, so it needs no cleaning
+    /// first. A line whose text is empty after normalizing is never furniture.
     pub text: String,
+    /// The x of the box's left edge, in points from the left edge of the page.
     pub left: f32,
+    /// The y of the box's top edge, in points down from the top edge of the
+    /// page.
     pub top: f32,
+    /// The x of the box's right edge, in points from the left edge of the page.
     pub right: f32,
+    /// The y of the box's bottom edge, in points down from the top edge of the
+    /// page. [`furniture`] uses only the centre between `top` and `bottom`, so
+    /// a reader that gives only a line's baseline can pass it as both.
     pub bottom: f32,
 }
 
-/// The lines of one page. [`furniture`] takes a document's pages in reading
-/// order with ascending page numbers, because it tries the pages to copy from
-/// nearest first by their position in the slice and assumes that the page
-/// offset grows with that position.
+/// The lines of one page.
+///
+/// [`furniture`] takes a document's pages in reading order with ascending page
+/// numbers, because it tries the pages to copy from nearest first by their
+/// position in the slice and assumes that the page offset grows with that
+/// position. A page without text, such as a blank page or a scanned page
+/// without a text layer, belongs in the slice with no lines, so that the page
+/// numbers run without gaps.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Page {
-    /// The page's number in the document, not its printed folio: a folio is
-    /// expected to move on by the difference between two pages' numbers.
+    /// The page's position in the document, 1 for the first page, not its
+    /// printed folio: a folio is expected to move on by the difference between
+    /// two pages' numbers. [`furniture`] names each furniture line by this
+    /// number, so every page needs its own.
     pub page: u32,
+    /// The page's lines, one for each line of text as the PDF reader groups
+    /// them. [`furniture`] names each furniture line by its index here,
+    /// counting every line, lines with empty text included.
     pub lines: Vec<Line>,
 }
 
@@ -130,8 +165,63 @@ const END: &str = "";
 /// Rounds of expectation–maximization at most; the shares settle in a few.
 const EM_ROUNDS: usize = 64;
 
-/// The `(page, line index)` pairs of the furniture lines: each furniture
-/// line's [`Page::page`] and its index in that page's `lines`.
+/// Finds the furniture among a document's lines: the lines that other pages
+/// predict.
+///
+/// A line is furniture when its shortest description is a copy of the nearest
+/// line on another page, shorter than a description by its own words and than
+/// a copy of the line above it. A copy may move a number on by the difference
+/// between the two pages' numbers, which is how page numbers are found. The
+/// descriptions' weights are fitted to `pages` and their counts taken from it,
+/// so a line's verdict depends on every other page: pass the whole document,
+/// in reading order and numbered by position as [`Page`] describes. A single
+/// page has no furniture.
+///
+/// Returns the `(page, line index)` pair of each furniture line: its
+/// [`Page::page`] and its index in that page's [`Page::lines`]. The set has no
+/// order.
+///
+/// # Panics
+///
+/// In a build with overflow checks, as debug builds have by default, this
+/// panics on integer overflow when a line holds a run of digits so close to
+/// `i64::MAX` that adding the difference between two page numbers, or 1 down a
+/// list, overflows `i64`, or when the lines hold more than `u32::MAX` tokens in
+/// all. A release build wraps the same arithmetic instead.
+///
+/// # Examples
+///
+/// ```
+/// use furniture_detection::{Line, Page, furniture};
+///
+/// let text = [
+///     "Value is not a thing but a relation between people,",
+///     "hidden under the form of a relation between things.",
+///     "Labour time measures it only where markets have",
+///     "made the work of each producer comparable to all.",
+/// ];
+/// let line = |text: String, left, top, right| Line { text, left, top, right, bottom: top + 10.0 };
+/// let pages: Vec<Page> = (1..=4)
+///     .map(|n| Page {
+///         page: n,
+///         lines: vec![
+///             line("On the Nature of Entropy".to_string(), 150.0, 30.0, 290.0),
+///             line(text[n as usize - 1].to_string(), 72.0, 60.0, 360.0),
+///             line((n + 40).to_string(), 210.0, 600.0, 222.0),
+///         ],
+///     })
+///     .collect();
+///
+/// let found = furniture(&pages);
+///
+/// // The page number of page 2 is furniture: line 2 of that page.
+/// assert!(found.contains(&(2, 2)));
+/// assert_eq!(pages[1].lines[2].text, "42");
+/// // Its line of text is not, because no other page repeats it.
+/// assert!(!found.contains(&(2, 1)));
+/// // A page alone has no other page to be copied from.
+/// assert!(furniture(&pages[1..2]).is_empty());
+/// ```
 pub fn furniture(pages: &[Page]) -> HashSet<(u32, usize)> {
     let mut vocabulary: HashMap<String, u32> = HashMap::new();
     let mut templates: HashMap<Vec<u32>, u32> = HashMap::new();
@@ -673,6 +763,11 @@ fn distance(a: &Text, b: &Text) -> f64 {
         .map(|k| (a.x[k] - b.x[k]).hypot(a.y - b.y))
         .fold(f64::INFINITY, f64::min)
 }
+
+/// Runs the examples in docs/usage.md as doctests.
+#[cfg(doctest)]
+#[doc = include_str!("../docs/usage.md")]
+struct UsageDoctests;
 
 #[cfg(test)]
 mod tests {
