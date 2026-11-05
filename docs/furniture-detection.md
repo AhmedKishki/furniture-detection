@@ -2,34 +2,34 @@
 
 A printed page carries text that belongs to the page rather than to the book's argument: running heads, page numbers (folios), a publisher's or repository's stamp at the foot of every page. Typesetters call it furniture. Left in the text, it splits sentences that run across a page break and fills search results with book titles and page numbers.
 
-This crate finds the furniture of a PDF with a measure instead of rules. Every line is described in three ways, each description has a length in bits, and the shortest description decides what the line is. The parameters of the descriptions are fitted to the book being read. No threshold, pattern list or trained model is involved.
+This crate finds the furniture of a PDF with a measure instead of rules. Every line is described in three ways, each with a length in bits, and the shortest description decides what the line is. The parameters of the descriptions are fitted to the book being read. No threshold, pattern list or trained model is involved.
 
-The code is in `src/lib.rs`. [An overview](#overview-a-running-head-and-a-folio) follows one running head and one folio through it. [Background](#background) explains the ideas from information theory and statistics that the code relies on, for a reader who has not met them; a reader who knows code lengths, minimum description length and expectation–maximization can skip it. [The detector, step by step](#the-detector-step-by-step) then follows the code in the order it runs, with a worked example at each step.
+The code is in `src/lib.rs`. [An overview](#overview-a-running-head-and-a-folio) follows a running head, a folio and a body line through it. [Background](#background) explains the ideas from information theory and statistics that the code relies on; a reader who knows code lengths, minimum description length and expectation–maximization can skip it. [The detector, step by step](#the-detector-step-by-step) then follows the code in the order it runs, with a worked example at each step.
 
 ## Input and output
 
-`furniture` takes the positioned text lines of a document's pages: for each page its number, and for each line its text and its box in points, with the origin at the top of the page and y growing downward. The crate does not read PDFs, so the caller builds the lines with a PDF reader. The pages come in reading order with ascending page numbers. A page's number is its place in the document, not its printed folio, because a folio is expected to move on by the difference between two pages' numbers.
+`furniture` takes the positioned text lines of a document's pages: for each page its number, and for each line its text and its box in points, with the origin at the top of the page and y growing downward. The crate does not read PDFs, so the caller builds the lines with a PDF reader. The pages come in reading order with ascending page numbers, and the caller passes every page, with no lines for a page without text, so that the numbers run without gaps: the search for copies relies on it, as [a copy from another page](#a-copy-from-another-page-copy_bits) explains. A page's number is its place in the document, not its printed folio, because a folio is expected to move on by the difference between two pages' numbers.
 
 The measure works by comparing pages, so it reads all pages at once. It returns each furniture line as a pair of its page's number and its index in that page's lines. A line whose text is empty after normalisation is never furniture.
 
 ## The idea
 
-Furniture is the part of a page that other pages already tell you. A running head on page 41 repeats the running head on page 39. The folio on page 41 is the folio on page 39 plus two. A sentence of the text, by contrast, is predicted by the words around it on its own page, and no other page holds it.
+Furniture is the part of a page that other pages already tell you. A running head on page 41 repeats the running head on page 39. The folio on page 41 is the folio on page 39 plus two. A sentence of the text, by contrast, is held by no other page, so it is predicted from the words around it on its own page.
 
-Video coding uses the same distinction. A frame is coded partly from its own pixels (intra prediction) and partly from the previous frame (inter prediction), and the static background ends up coded from the previous frame because that is cheaper. Here a page is a frame, and furniture is what is cheaper to code from another page.
+Video coding uses the same distinction. A frame is coded partly from its own pixels (intra prediction) and partly from the previous frame (inter prediction). The static background ends up coded from the previous frame, because that is cheaper. With a page in the place of a frame, furniture is what is cheaper to code from another page.
 
 Minimum description length makes this a decision rule: of several ways to describe the data, prefer the one that describes it in fewer bits. A description must pay for everything it uses, including which other page it copies from, so a copy wins only when the other page really predicts the line. [Background](#background) explains what a length in bits is and why comparing lengths is a fair test.
 
 ## Overview: a running head and a folio
 
-The crate's documentation example (in the README and at the top of `src/lib.rs`) is a book of four pages, numbered 1 to 4. Each page $n$ has the running head `On the Nature of Entropy` at the top, two lines of body text that differ from page to page, and the folio $n + 40$ at the foot. On page 2, the detector treats the running head, the folio `42` and the first body line as follows.
+The crate's documentation example (in the README and at the top of `src/lib.rs`) is a book of four pages, numbered 1 to 4. Each page $n$ has the running head `On the Nature of Entropy` at the top, two lines of body text that differ from page to page, and the folio $n + 40$ at the foot. The steps below follow three lines of page 2 through the detector: the running head, the folio `42` and the first body line.
 
 1. **Tokens.** The head becomes the tokens `on the nature of entropy`. The folio becomes the single token `#`, with the number 42 kept apart. A line's tokens, with each number reduced to its kind, form its template, so the four folios share one template.
 2. **Number codes.** No other line in the book holds 42, so the number costs what writing out its two digits costs: 9.64 bits.
 3. **By its tokens.** Each token is coded from the token before it, by how often that pair occurs on the book's other lines. The other three running heads hold the same pairs, so the head costs 8.60 bits. The folio costs 3.41 bits for `#` and the end of the line, plus 9.64 bits for its number: 13.06 bits. The body line's word pairs occur nowhere else, so it costs 67.96 bits.
-4. **A copy of the line above.** The head has no line above it, and above the folio is body text with another template, so none of the three lines has this description.
+4. **A copy of the line above.** The head has no line above it. Above the folio is body text, and above the body line is the head, each with another template. None of the three lines therefore has this description.
 5. **A copy from another page.** Page 1 holds the same head at the same place, so the head can be described as "the line at this place on the previous page": 2 bits to name the page and nothing more. The folio is "the line at this place on the previous page, its number moved on by one page": 2 bits for the page and 1.58 bits to say that the number moved, 3.58 bits in all. No other page holds the body line's template, so it has no copy.
-6. **The decision.** Saying which description a line uses costs bits too, more for a description that few lines use. In this small book half the lines are heads and folios, so the copy and the token description are equally common and cost the same to name. Each line therefore takes its shorter description.
+6. **The decision.** Saying which description a line uses adds bits to its length, more for a description that few lines use. In this small book half the lines are heads and folios, so the copy and the token description are equally common and cost the same to name. Each line therefore takes its shorter description.
 
 | Page 2 | By its tokens | Copy of the line above | Copy from another page | Result |
 |---|---|---|---|---|
@@ -77,17 +77,17 @@ $$L(x_1 \dots x_n) = \sum_{i=1}^{n} -\log_2 P(x_i \mid x_1 \dots x_{i-1}) = -\lo
 
 ### Comparing lengths compares explanations
 
-Two descriptions of the same line are two probability models of it. The shorter description comes from the model that gave the line the higher probability, and $k$ bits shorter means $2^k$ times as probable. Page 2's folio in the four-page book costs 13.06 bits by its tokens and 3.58 bits as a copy of page 1's folio, so the copy makes the line $2^{9.47} \approx 710$ times as probable.
+Two descriptions of the same line are two probability models of it. The shorter description comes from the model that gave the line the higher probability: $k$ bits shorter means $2^k$ times as probable. Page 2's folio in the four-page book costs 13.06 bits by its tokens and 3.58 bits as a copy of page 1's folio, so the copy makes the line $2^{9.47} \approx 710$ times as probable.
 
-The comparison is fair only if each description codes the whole line and pays for every choice it makes. A copy that named its page for free could try every page and keep the best fit, and its length would no longer say how well one other page predicts the line. The copy therefore pays for its page and for each of its numbers.
+The comparison is fair only if each description codes the whole line and pays for every choice it makes. A copy that named its page for free could try every page and keep the best fit, so its length would no longer say how well one other page predicts the line. The copy therefore pays for its page and for each of its numbers.
 
 ### Minimum description length
 
-The minimum description length (MDL) principle makes this comparison the rule for choosing between explanations: prefer the one that describes the data in the fewest bits (Rissanen 1978). A two-part description first says which explanation it uses and then codes the data under it, and both parts count towards its length (MacKay, §28.3; Grünwald 2005, §2.4).
+The minimum description length (MDL) principle makes this comparison the rule for choosing between explanations: prefer the one that describes the data in the fewest bits (Rissanen 1978). A two-part description first says which explanation it uses and then codes the data under it, so both parts count towards its length (MacKay, §28.3; Grünwald 2005, §2.4).
 
 The detector has three explanations of a line, so each line's description starts by naming one. If a share $\pi_m$ of the book's lines uses description $m$, naming it costs $-\log_2 \pi_m$ bits. When nine lines in ten are described by their tokens and one in ten as a copy, naming the token description costs $-\log_2 0.9 = 0.15$ bits and naming the copy $-\log_2 0.1 = 3.32$ bits. A rarer description must therefore save more bits to win, by an amount the book's own shares set ([the threshold](#the-decision-choose)).
 
-The detector does not charge for its fitted weights $\alpha$, $\beta$ and $\gamma$ or for the shares themselves. They are a handful of numbers for the whole book, and stating them would cost the same however any one line is described, so leaving that cost out changes no decision.
+The detector does not charge for its fitted weights $\alpha$, $\beta$ and $\gamma$ or for the shares themselves. They are a handful of numbers for the whole book: stating them would cost the same however any one line is described, so leaving that cost out changes no decision.
 
 ### A code for whole numbers
 
@@ -108,7 +108,7 @@ bits:
 | 18 | `10010` | `000010010` | 9 |
 | 20 | `10100` | `000010100` | 9 |
 
-`gamma_bits` computes $E(n)$, because for a 64-bit `n >= 1`, `63 - n.leading_zeros()` is $\lfloor \log_2 n \rfloor$; it gives 0 the length of 1. Read as probabilities, the code gives each of the $2^k$ numbers with $k + 1$ binary digits the probability $2^{-(2k+1)}$, so those numbers together get $2^{-(k+1)}$, and the total over all lengths is $\tfrac12 + \tfrac14 + \dots = 1$. The code wastes no probability, and each extra binary digit halves what a length's numbers get together.
+`gamma_bits` computes $E(n)$, because for a 64-bit `n >= 1`, `63 - n.leading_zeros()` is $\lfloor \log_2 n \rfloor$; it gives 0 the length of 1. Read as probabilities, the code gives each of the $2^k$ numbers with $k + 1$ binary digits the probability $2^{-(2k+1)}$, so those numbers together get $2^{-(k+1)}$: each extra binary digit halves what a length's numbers get together. The total over all lengths is $\tfrac12 + \tfrac14 + \dots = 1$, so the code wastes no probability.
 
 The detector uses $E$ twice:
 
@@ -143,7 +143,7 @@ Counts from a narrow context predict sharply but rest on few observations; count
 
 $$P(w) = \frac{c(w) + \kappa\, G(w)}{n + \kappa} = \frac{n}{n + \kappa} \cdot \frac{c(w)}{n} + \frac{\kappa}{n + \kappa} \cdot G(w).$$
 
-The left form reads as if $\kappa$ extra observations had been made and spread over the tokens in proportion to $G$. The right form gives the specific frequency the weight $n/(n + \kappa)$ and the general estimate the rest. A context never seen ($n = 0$) falls back entirely on $G$, and a context seen many times relies mostly on its own counts. A word counted twice among 20 tokens on a page, with a book share of 0.01 and $\kappa = 10$, gets $P = (2 + 10 \times 0.01)/(20 + 10) = 0.07$, with weight $20/30$ on the page's counts.
+The left form reads as if $\kappa$ extra observations had been made and spread over the tokens in proportion to $G$. The right form gives the specific frequency the weight $n/(n + \kappa)$ and the general estimate the rest. A context never seen ($n = 0$) falls back entirely on $G$, while a context seen many times relies mostly on its own counts. A word counted twice among 20 tokens on a page, with a book share of 0.01 and $\kappa = 10$, gets $P = (2 + 10 \times 0.01)/(20 + 10) = 0.07$, with weight $20/30$ on the page's counts.
 
 Language modelling calls this interpolation: the estimate always mixes both sources, where a backoff model turns to the general one only when the specific count is zero (Jurafsky and Martin, §3.6). MacKay and Peto (1995, §2.6) show that this formula is the Bayesian prediction under a Dirichlet prior centred on $G$ with strength $\kappa$, and that its weight on $G$, unlike a fixed interpolation weight, falls as the context's count grows.
 
@@ -157,9 +157,9 @@ The detector mixes at three places, each with a weight fitted to the book:
 
 Every count that codes a line comes from the rest of the book: the line's own tokens are subtracted, except those already coded earlier on the line. A decoder that knows every other line of the book, and has read this line up to the current token, can compute these counts, so the code length is the length of a code that could really be used. Counting the line's later tokens would let the line predict itself.
 
-That would favour the lines that should cost most. In the four-page book, page 2's first body line costs 67.96 bits with itself left out and would cost 20.39 bits with all its own tokens counted. The running head would drop only from 8.60 to 7.19 bits, because other pages already predict it. Text that occurs once would look nearly as predictable as text that repeats, and the comparison with a copy would no longer ask what other text predicts.
+Letting a line predict itself would favour the lines that should cost most. In the four-page book, page 2's first body line costs 67.96 bits with itself left out and would cost 20.39 bits with all its own tokens counted. The running head would drop only from 8.60 to 7.19 bits, because other pages already predict it. Text that occurs once would look nearly as predictable as text that repeats, so the comparison with a copy would no longer ask what other text predicts.
 
-Leaving each line out also makes the fit of $\alpha$, $\beta$ and $\gamma$ a form of cross-validation: a weight is judged by how well each line is predicted from data that excludes it, as deleted interpolation sets its weights on held-out blocks of text (MacKay and Peto 1995, §1.1). Coding a line from its own earlier tokens is the sequential, or prequential, view of a code (Grünwald 2005, §2.6.4 and §2.9.3).
+Leaving each line out makes the fit of $\alpha$, $\beta$ and $\gamma$ a form of cross-validation: a weight is judged by how well each line is predicted from data that excludes it, as deleted interpolation sets its weights on held-out blocks of text (MacKay and Peto 1995, §1.1). Coding a line from its own earlier tokens is the sequential, or prequential, view of a code (Grünwald 2005, §2.6.4 and §2.9.3).
 
 ### Shortest code is maximum likelihood
 
@@ -167,7 +167,7 @@ The total code length of the book's tokens is
 
 $$\sum_\text{tokens} -\log_2 P(\text{token}) = -\log_2 \prod_\text{tokens} P(\text{token}):$$
 
-the negative logarithm of the probability that the model gives the book's text, called its likelihood. Weights that make the total shortest are therefore the weights under which the book is most probable: fitting by minimum code length is fitting by maximum likelihood, and every bit saved doubles that probability. In the four-page book the tokens cost 874.64 bits with $\alpha = \beta = 1$ and 608.15 bits with the fitted weights, 266.49 bits less. Language models set their interpolation weights the same way, by the likelihood of held-out text (Jurafsky and Martin, §3.6.3).
+the negative logarithm of the probability that the model gives the book's text, called its likelihood. Weights that make the total shortest are therefore the weights under which the book is most probable: fitting by minimum code length is fitting by maximum likelihood. Every bit saved doubles that probability. In the four-page book the tokens cost 874.64 bits with $\alpha = \beta = 1$ and 608.15 bits with the fitted weights, 266.49 bits less. Language models set their interpolation weights the same way, by the likelihood of held-out text (Jurafsky and Martin, §3.6.3).
 
 ### Golden-section search
 
@@ -177,9 +177,9 @@ It keeps an interval $[lo, hi]$ that contains the minimum and two points inside 
 
 $$a = hi - r\,(hi - lo), \qquad b = lo + r\,(hi - lo), \qquad r = \frac{\sqrt5 - 1}{2} \approx 0.618.$$
 
-If $f(a) < f(b)$, a function with one valley cannot have its lowest point beyond $b$, so $hi$ moves to $b$; otherwise $lo$ moves to $a$, which is also what a tie does. Either way the interval shrinks to $r$ of its width. Because $r^2 = 1 - r$, the inner point that survives is one of the two inner points of the new interval, so each round evaluates the function only once.
+If $f(a) < f(b)$, a function with one valley cannot have its lowest point beyond $b$, so $hi$ moves to $b$; otherwise, a tie included, $lo$ moves to $a$. Either way the interval shrinks to $r$ of its width. Because $r^2 = 1 - r$, the inner point that survives is one of the two inner points of the new interval, so each round evaluates the function only once.
 
-The code searches the natural logarithm of the weight, between $\ln 10^{-3}$ and $\ln 10^{7}$. A weight can lie anywhere from a thousandth to ten million, and equal steps in the logarithm treat every factor of ten alike. The search runs 48 rounds, which shrink the interval from $\ln 10^{10} = 23.03$ to $2.1 \times 10^{-9}$, and returns the exponential of the final interval's midpoint; it evaluates the function 50 times. Fitting $\beta$ in the four-page book, with $\alpha$ held at its fitted value, starts like this:
+The code searches the natural logarithm of the weight, between $\ln 10^{-3}$ and $\ln 10^{7}$, because a weight can lie anywhere from a thousandth to ten million and equal steps in the logarithm treat every factor of ten alike. The search runs 48 rounds, which shrink the interval from $\ln 10^{10} = 23.03$ to $2.1 \times 10^{-9}$, and returns the exponential of the final interval's midpoint. With one evaluation a round and two for the first inner points, it evaluates the function 50 times. Fitting $\beta$ in the four-page book, with $\alpha$ held at its fitted value, starts like this:
 
 | Round | $lo$ | $a$ | $b$ | $hi$ | Total at $a$ | Total at $b$ |
 |---|---|---|---|---|---|---|
@@ -195,15 +195,15 @@ and returns $\beta = 3.04$. `within_page_bits` fits $\alpha$ and $\beta$ in turn
 
 ### Hard expectation–maximization
 
-The cost of naming a description depends on the shares $\pi_m$, and the shares depend on which description each line takes. Expectation–maximization (EM) breaks the circle by alternating: guess the shares, assign the lines given the shares, count the shares again from the assignment, and repeat.
+The cost of naming a description depends on the shares $\pi_m$, and the shares in turn depend on which description each line takes. Expectation–maximization (EM) breaks the circle by alternating: guess the shares, assign the lines given the shares, count the shares again from the assignment, and repeat.
 
 Ordinary, or soft, EM splits each line among the descriptions in proportion to $\pi_m\, 2^{-L_m}$, which it calls their responsibilities, and sets each share to the average responsibility over the lines (Bishop, §9.2.2). Hard, or classification, EM gives each line wholly to the description with the smallest $L_m - \log_2 \pi_m$ and counts the shares from those choices (Celeux and Govaert 1992). K-means clustering is the best-known hard EM: each point goes to its nearest centre, where the soft version weighs it by its closeness to every centre (MacKay, §20.1 and §20.2; Bishop, §9.3.2).
 
-`choose` runs hard EM. It stops when no line changes its choice, and then every line takes its shortest description under shares counted from those same choices. [The decision](#the-decision-choose) shows a book in which this moves lines from one description to another and compares the split that soft EM would make.
+`choose` runs hard EM. It stops when no line changes its choice, so at the end every line takes its shortest description under shares counted from those same choices. [The decision](#the-decision-choose) shows hard EM moving lines from one description to another in one book, and compares the split that soft EM would make there.
 
 ## The detector, step by step
 
-`furniture` runs the steps below in order. Each step reads the lines and the results of the steps before it.
+Each step below reads the lines and the results of the steps before it, so `furniture` runs them in this order.
 
 ### Tokens and templates
 
@@ -216,7 +216,7 @@ Ordinary, or soft, EM splits each line among the descriptions in proportion to $
 - a run of letters that spells a roman numeral in its standard form, from 1 to 3999, is a number: `xiv` is 14, while `iiii`, `vx` and `ivory` are words;
 - every other character except whitespace is a token of its own.
 
-A number's token is its kind, `#` for digits and `#r` for a roman numeral, and the number itself, as written and with its value, is kept apart. The sequence of tokens is the line's template, and `furniture` gives each distinct template an id. The tokens that get coded are the template's tokens followed by an end-of-line token.
+A number's token is its kind, `#` for digits and `#r` for a roman numeral, while the number itself, as written and with its value, is kept apart. The sequence of tokens is the line's template. `furniture` gives each distinct template an id. The tokens that get coded are the template's tokens followed by an end-of-line token.
 
 | Line | Tokens | Numbers |
 |---|---|---|
@@ -225,7 +225,7 @@ A number's token is its kind, `#` for digits and `#r` for a roman numeral, and t
 | `pp. 12–15.` | `pp` `.` `#` `–` `#` `.` | `12`, `15` |
 | `I mix the civil` | `#r` `#r` `the` `civil` | `i` (1), `mix` (1009) |
 
-`354 | Index` and `352 | Index` share the template `# | index`, so a description that copies one of them states only how the number differs. The rule looks only at the letters, so the pronoun `I` and the word `mix`, which spell the numerals 1 and 1009, become numbers too.
+`354 | Index` and `352 | Index` share the template `# | index`, so a description that copies one of them states only how the number differs. The roman-numeral rule looks only at the letters, so the pronoun `I` and the word `mix`, which spell the numerals 1 and 1009, become numbers.
 
 ### Number codes: `number_bits`
 
@@ -239,14 +239,14 @@ where
 - $N$ counts all numbers in the rest of the book, plus those earlier on the line;
 - $\ell(n)$ is `literal_bits`, the cost of writing the number out digit by digit. A roman numeral is charged for the decimal digits of its value, so `xiv` costs what `14` costs.
 
-$2^{-\ell(n)}$ is itself a probability over digit strings: the gamma code gives each digit count its share, and the $10^{\text{digits}}$ strings of that count split it equally. The formula is the [mixing](#mixing-a-specific-estimate-with-a-general-one) described in the background, with the book's counts as the specific estimate and the digit code as the general one. A number that occurs nowhere else costs $\ell(n) + \log_2((N + \gamma)/\gamma)$ bits: its digits, plus the price of saying that it is new. `minimize_log` fits $\gamma$ to make the total over all the book's numbers shortest, and the fit follows the book:
+$2^{-\ell(n)}$ is itself a probability over digit strings: the gamma code gives each digit count its share, and the $10^{\text{digits}}$ strings of that count split it equally. The formula is the [mixing](#mixing-a-specific-estimate-with-a-general-one) described in the background, with the book's counts as the specific estimate and the digit code as the general one. A number that occurs nowhere else costs $\ell(n) + \log_2((N + \gamma)/\gamma)$ bits: its digits, plus the price of saying that it is new. `minimize_log` fits $\gamma$ to make the total over all the book's numbers shortest, so the fit follows the book:
 
-- In the four-page book the numbers are the folios 41 to 44, each written once, so counts never help. $\gamma$ goes to the top of its range, $10^7$, and `42` costs its digits, 9.64 bits, plus $4.3 \times 10^{-7}$ bits.
-- In the crate's test `a_numbered_list_down_a_column_is_not_furniture`, twelve pages each carry a list `(1)` to `(6)`, so every number recurs 12 times. $\gamma$ goes to the bottom of its range, $10^{-3}$. `1`, which occurs 11 times among the other 71 numbers, costs 2.69 bits, almost exactly $\log_2(71/11)$, instead of the 4.32 bits of its digit, and a three-digit number new to that book would cost 29.08 bits.
+- In the four-page book the numbers are the folios 41 to 44, each written once, so counts never help. $\gamma$ goes to the top of its range, $10^7$, so `42` costs its digits, 9.64 bits, plus $4.3 \times 10^{-7}$ bits.
+- In the crate's test `a_numbered_list_down_a_column_is_not_furniture`, the list test below, twelve pages each carry a list `(1)` to `(6)`, so every number recurs 12 times. $\gamma$ goes to the bottom of its range, $10^{-3}$. `1`, which occurs 11 times among the other 71 numbers, costs 2.69 bits, almost exactly $\log_2(71/11)$, instead of the 4.32 bits of its digit, while a three-digit number new to that book would cost 29.08 bits.
 
 ### The token-pair model: `within_page_bits`
 
-`within_page_bits` describes a line by its tokens. Each token $w$ is coded given the token $v$ before it on the line, and the start of the line counts as the token before the first:
+`within_page_bits` describes a line by its tokens. Each token $w$ is coded given the token $v$ before it on the line, with the start of the line counting as the token before the first:
 
 $$P(w \mid v) = \frac{c(v, w) + \beta\, P_1(w)}{c(v) + \beta}, \qquad P_1(w) = \frac{c_\text{page}(w) + \alpha\, P_\text{book}(w)}{n_\text{page} + \alpha}, \qquad P_\text{book}(w) = \frac{c_\text{book}(w) + \tfrac12}{n_\text{book} + \tfrac{V}{2}}.$$
 
@@ -283,13 +283,13 @@ In the four-page book the fit gives $\beta = 3.04$ and puts $\alpha$ at the top 
 | `entropy`, end | 3 | 3 | 0.108 | 0.551 | 0.86 |
 | | | | | Total | 8.60 |
 
-For `the`, `nature`: $P = (3 + 3.04 \times 0.0249)/(7 + 3.04) = 0.306$, with weight $7/10.04 = 0.70$ on the pair counts and $0.30$ on $P_1$. Every pair of the head occurs on the other three pages, so no token costs more than 2.54 bits. The pairs of the body line below it, `labour time measures it only where markets have`, mostly occur nowhere else. For `labour`, `time`, $c(v, w) = 0$ and $c(v) = 2$, so $P = 3.04 \times 0.00366/(2 + 3.04) = 0.0022$, 8.82 bits, and the whole line costs 67.96 bits. The folio `42` pays 2.55 bits for `#` after the start, 0.86 bits for the end after `#` and 9.64 bits for its number: 13.06 bits.
+For `the`, `nature`: $P = (3 + 3.04 \times 0.0249)/(7 + 3.04) = 0.306$, with weight $7/10.04 = 0.70$ on the pair counts and $0.30$ on $P_1$. Every pair of the head occurs on the other three pages, so no token costs more than 2.54 bits. The pairs of the body line below it, `labour time measures it only where markets have`, mostly occur nowhere else. For `labour`, `time`, $c(v, w) = 0$ and $c(v) = 2$, so $P = 3.04 \times 0.00366/(2 + 3.04) = 0.0022$, 8.82 bits. Summed over its tokens, the whole line costs 67.96 bits. The folio `42` pays 2.55 bits for `#` after the start, 0.86 bits for the end after `#` and 9.64 bits for its number: 13.06 bits.
 
-A larger book gives the weights more to work with. In the crate's test `running_heads_and_folios_are_furniture`, twelve pages each hold 30 lines of words drawn at random from a list of 24, and the fit gives $\alpha = 1865$ and $\beta = 172$. On page 5 the rest of the page holds 272 tokens, so the page counts carry weight $272/(272 + 1865) = 0.13$ in $P_1$. Because the words follow each other at random, the fit gives pair counts little weight: a pair seen 11 times carries $11/(11 + 172) = 0.06$.
+A larger book gives the weights more to work with. In the crate's test `running_heads_and_folios_are_furniture`, where twelve pages each hold 30 lines of words drawn at random from a list of 24, the fit gives $\alpha = 1865$ and $\beta = 172$. On page 5 the rest of the page holds 272 tokens, so the page counts carry weight $272/(272 + 1865) = 0.13$ in $P_1$. Because the words follow each other at random, the fit gives pair counts little weight: a pair seen 11 times carries $11/(11 + 172) = 0.06$.
 
 ### A copy of the line above: `column_copy_bits`
 
-`column_copy_bits` describes a line as a copy of the line above it in its column. The reference is, among the lines of the same page whose centre lies higher and whose horizontal extent overlaps the line's own, the one whose centre sits lowest on the page, so the nearest above; on a tie, the earlier line. If no line qualifies, or the reference holds another template, the line has no column description.
+`column_copy_bits` describes a line as a copy of the line above it in its column. The reference is the nearest line above: among the lines of the same page whose centre lies higher and whose horizontal extent overlaps the line's own, the one whose centre sits lowest on the page, the earlier line winning a tie. If no line qualifies, or the reference holds another template, the line has no column description.
 
 The description costs, for each number, $\log_2 3 = 1.58$ bits to say which of three cases holds, plus the number's own code from `number_bits` in the third:
 
@@ -297,7 +297,7 @@ $$L_\text{column} = \sum_\text{numbers} \left( \log_2 3 + \begin{cases} 0 & \tex
 
 A line without numbers that repeats the line above costs 0 bits.
 
-This is how a list describes itself: contents-page numbers, numbered callouts down a code listing, index lines. In the list test, the item `(2)` on page 2 sits under `(1)` with the same template and a number one more, so it costs 1.58 bits, against 6.90 bits by its tokens and 6.28 bits as a copy from another page. `(1)` has no column description, because the body text to its right starts at x = 80 and the item ends at 64, so no line above it overlaps. Without this description, the second item of a list that recurs at the same place on the next page would look like furniture.
+A list describes itself this way: contents-page numbers, numbered callouts down a code listing, index lines. In the list test, the item `(2)` on page 2 sits under `(1)` with the same template and a number one more, so it costs 1.58 bits, against 6.90 bits by its tokens and 6.28 bits as a copy from another page. `(1)` has no column description, because the body text to its right starts at x = 80 and the item ends at 64, so no line above it overlaps. Without this description, the second item of a list that recurs at the same place on the next page would look like furniture.
 
 ### A copy from another page: `copy_bits`
 
@@ -314,18 +314,18 @@ $$L_\text{copy} = 1 + E(|q - p|) + \sum_\text{numbers} \left( \log_2 3 + \begin{
 
 The result is the cheapest copy, or none when no copy is shorter than the line's length by its tokens.
 
-`distance` compares the two lines at three pairs of anchors: their left edges, their centres and their right edges, each anchor taken at its own line's vertical centre. It returns the smallest of the three straight-line distances, so two lines aligned on any one edge are close. Right-aligned folios `9` and `10` at the same height, both ending at x = 540, are 6 points apart at their left edges and 3 at their centres but 0 at their right edges, so their distance is 0. A body line that also ends at x = 540, 14 points higher, is at distance 14 from `10`.
+`distance` compares the two lines at three pairs of anchors: their left edges, their centres and their right edges, each anchor taken at its own line's vertical centre. It returns the smallest of the three straight-line distances, so two lines aligned on any one edge are close. Right-aligned folios `9` and `10` at the same height, both ending at x = 540, are 6 points apart at their left edges and 3 at their centres but 0 at their right edges, so their distance is 0. A body line that ends at the same x = 540, 14 points higher, is at distance 14 from `10`.
 
 For the folio `42` on page 2 of the four-page book, the candidates are pages 1, 3 and 4. Page 1 is one page back, 2 bits. Its line nearest to the folio is its own folio `41`, at distance 0 and with the same template, and 42 is 41 moved on by one page, so the number costs only $\log_2 3$. The copy costs 3.58 bits and becomes the bound. Page 3 would cost at least $2 + 1.58 = 3.58$ bits, which does not beat the bound, so the search stops.
 
-The list test shows the reference at work. For `(1)` on page 2, page 1 comes first. Page 1's list starts one row higher, so the line at the same place there is its `(2)`; 1 is neither 2 nor 2 + 1, so the number is written out and the copy costs $2 + 1.58 + 2.69 = 6.28$ bits. Page 3's list starts one row lower, so the nearest line there is its `(1)`, 14 points below, closer than the body line beside it at 30 points; the copy costs 3.58 bits. Page 4 is two pages away and would cost at least $4 + 1.58$ bits, so the search stops.
+In the list test, the choice of reference decides what the copy costs. For `(1)` on page 2, page 1 comes first. Page 1's list starts one row higher, so the line at the same place there is its `(2)`; 1 is neither 2 nor 2 + 1, so the number is written out and the copy costs $2 + 1.58 + 2.69 = 6.28$ bits. Page 3's list starts one row lower, so the nearest line there is its `(1)`, 14 points below, closer than the body line beside it at 30 points; the copy costs 3.58 bits. Page 4 is two pages away and would cost at least $4 + 1.58$ bits, so the search stops.
 
 **Why stopping early loses nothing.** Two facts make the stop exact.
 
-- Every page still to try costs at least its offset plus $\log_2 3$ per number. Pages are tried nearest first, so offsets do not shrink, and once that floor reaches the bound, no later page can come in under it.
+- Every page still to try costs at least its offset plus $\log_2 3$ per number. Pages are tried nearest first, so offsets do not shrink: once that floor reaches the bound, no later page can come in under it.
 - The bound may include the token length because a copy that is not shorter than the token description can be chosen only if copies are more common than token descriptions. To be chosen, a copy needs $L_\text{copy} - \log_2 \pi_\text{copy} < L_\text{tokens} - \log_2 \pi_\text{tokens}$, and with $L_\text{copy} \ge L_\text{tokens}$ that requires $\pi_\text{copy} > \pi_\text{tokens}$. While copies are no more common, the search need not find such a copy, so the token length serves as the bound from the start.
 
-The first fact assumes that the page offset grows with the distance in `pages`, as the documentation of `Page` says. That holds when page numbers run without gaps. When they skip, a page further along the slice on one side can be nearer by page number than a page on the other side, and the search can stop before reaching it. In a book numbered 96 to 100 and then 120 to 122, a stamp on page 100 with copies on pages 98 and 120 tries page 120 first, because it is next in the slice; if the stamp cost 9 bits by its tokens, the 10-bit offset would stop the search there, and the 4-bit copy from page 98 would never be tried.
+The first fact assumes that the page offset grows with the distance in `pages`, as the documentation of `Page` says. That holds when page numbers run without gaps. When they skip, a page further along the slice on one side can be nearer by page number than a page on the other side, so the search can stop before reaching it. In a book numbered 96 to 100 and then 120 to 122, a stamp on page 100 with copies on pages 98 and 120 tries page 120 first, because it is next in the slice; if the stamp cost 9 bits by its tokens, the 10-bit offset would stop the search there, so the 4-bit copy from page 98 would never be tried.
 
 ### Why positions cost nothing
 
@@ -346,13 +346,13 @@ A copy beats the token description when $L_\text{copy} - \log_2 \pi_\text{copy} 
 
 $$L_\text{tokens} - L_\text{copy} > \log_2 \frac{\pi_\text{tokens}}{\pi_\text{copy}}.$$
 
-When the line also has a column description, the copy must beat that one too, by more than $\log_2(\pi_\text{column}/\pi_\text{copy})$. The threshold comes from the book's shares, not from a setting. If 95% of a book's lines are described by their tokens and 5% copy from another page, a copy must save more than $\log_2(0.95/0.05) = 4.25$ bits; at 88% and 12%, more than 2.87 bits.
+Where the line has a column description, the copy must beat that one too, by more than $\log_2(\pi_\text{column}/\pi_\text{copy})$. The threshold comes from the book's shares, not from a setting. If 95% of a book's lines are described by their tokens and 5% copy from another page, a copy must save more than $\log_2(0.95/0.05) = 4.25$ bits; at 88% and 12%, more than 2.87 bits.
 
-Three of the books above show the shares at work:
+The three books above give these shares and thresholds:
 
 - In the four-page book, 8 lines take their tokens, none the line above and 8 a copy. The shares are $8.5/17.5 = 0.486$, $0.5/17.5 = 0.029$ and $0.486$, the threshold is 0 bits, and the second round changes nothing.
-- In `running_heads_and_folios_are_furniture`, 24 of the 384 lines are heads and folios. The copy share is $24.5/385.5 = 0.064$ against $0.935$ for tokens, a threshold of 3.88 bits. The running head on page 5 saves 21.79 bits by copying and the folio 14.23 bits.
-- The list test has no furniture, which the shares find out in three rounds. In the first round, with equal shares, the twelve items `(1)` take the copy from another page, which is up to 3.32 bits shorter than their tokens. The recount gives the copy a share of $12.5/433.5 = 0.029$ against $0.832$ for tokens, a threshold of 4.85 bits, so in the second round all twelve return to their tokens. The copy share falls to $0.5/433.5 = 0.0012$, the threshold rises to 9.54 bits, and the third round changes nothing.
+- In `running_heads_and_folios_are_furniture`, 24 of the 384 lines are heads and folios. The copy share is $24.5/385.5 = 0.064$ against $0.935$ for tokens, a threshold of 3.88 bits. The running head on page 5 saves 21.79 bits by copying and the folio 14.23 bits, both more than that threshold.
+- In the list test, which has no furniture, hard EM takes three rounds to settle. In the first round, with equal shares, the twelve items `(1)` take the copy from another page, which is up to 3.32 bits shorter than their tokens. The recount gives the copy a share of $12.5/433.5 = 0.029$ against $0.832$ for tokens, a threshold of 4.85 bits, so in the second round all twelve return to their tokens. The copy share falls to $0.5/433.5 = 0.0012$, the threshold rises to 9.54 bits, and the third round changes nothing.
 
 Soft EM would have left those twelve items split. With the second round's shares, an item `(1)` whose copy saves 3.32 bits has a responsibility of 0.26 for the copy and 0.74 for its tokens, so each would keep about a quarter of a line in the copy share. Hard EM ends with every line wholly in one description and the shares counted from those choices.
 
@@ -365,7 +365,7 @@ From Hall, *Selected Writings on Marxism*, page 365, the folio and running foot 
 | By its tokens | 37.4 |
 | As a copy from page −2 (`352 \| Index`): offset 4, number moved on by 2 pages, $\log_2 3$ | 5.6 |
 
-The copy saves 31.8 bits, far above the 4.15 bits this book's shares ask for; in this book the token description is about 18 times as common as the copy. The line is furniture.
+In this book the token description is about 18 times as common as the copy, so its shares ask a copy to save more than 4.15 bits. This copy saves 31.8 bits, far more, so the line is furniture.
 
 From Weatherby, *Language Machines*, page 222, a folio `213` at the foot of the page, a place where the nearest other folio is 18 pages back:
 
@@ -374,7 +374,7 @@ From Weatherby, *Language Machines*, page 222, a folio `213` at the foot of the 
 | By its tokens | 15.0 |
 | As a copy from page −18, the nearest page with a folio at the same place: offset 10, number moved, $\log_2 3$ | 11.6 |
 
-The copy saves 3.4 bits, below the 4.40 bits this book's shares ask for. The folio stays in the text, and the evaluation counts it as a miss.
+The copy saves 3.4 bits, below the 4.40 bits this book's shares ask for, so the folio stays in the text, which the evaluation counts as a miss.
 
 ## Why a measure instead of rules
 
@@ -383,10 +383,10 @@ The position-and-recurrence rule this measure replaced called a line furniture w
 ## Limits
 
 - The measure compares pages, so it cannot judge a one-page document. A document needs several pages that share furniture.
-- A copy needs the same template. When the PDF reader that builds the lines extracts a letter-spaced running head with different spacing on each page (`O NTO LOG Y`, `ON TO LOG Y`), no page holds a copy, and the head stays in the text.
-- Text that really does recur at the same place on nearby pages is described as a copy, and is removed: code that repeats across listings, short note and citation lines with a common pattern, a title page printed twice.
-- Furniture whose text changes on every page without a number that moves with the page, such as a source note that names a different journal at each chapter opening, has no copy and stays.
-- A folio printed somewhere else on a few pages, such as chapter openings, can only copy from a distant page and may stay in the text.
+- A copy needs the same template. When the PDF reader that builds the lines extracts a letter-spaced running head with different spacing on each page (`O NTO LOG Y`, `ON TO LOG Y`), no page holds a copy, so the head stays in the text.
+- Text that really does recur at the same place on nearby pages, such as code that repeats across listings, short note and citation lines with a common pattern, or a title page printed twice, is described as a copy, so it is taken for furniture.
+- Furniture whose text changes on every page without a number that moves with the page, such as a source note that names a different journal at each chapter opening, has no copy, so it stays.
+- A folio printed somewhere else on a few pages, such as chapter openings, can only copy from a distant page, so it may stay in the text.
 - The search for copies stops at the length of the token description. This is exact while copies are no more common than token descriptions, which holds for books. Its other stop assumes that page numbers grow with position in `pages` without gaps; where they skip, the search can stop before a page that is nearer by number on the other side.
 
 ## Cost
@@ -395,7 +395,7 @@ On 22 books (7,235 pages), whole PDF extraction (reading the PDF, building lines
 
 ## References
 
-Each entry says what to read it for. The free ones are marked.
+Entries that are free to read are marked.
 
 ### Codes and code lengths
 

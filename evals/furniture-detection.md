@@ -2,7 +2,7 @@
 
 This evaluation compares the furniture detection of this crate ([docs/furniture-detection.md](../docs/furniture-detection.md)) with docling's layout model on 22 randomly drawn books. Furniture means running heads, folios and repository stamps that a PDF reader must keep out of the text.
 
-On 550 sampled pages, the code-length measure finds 97.3% of the lines docling labels as furniture, and 87.3% of the lines it removes are lines docling labels as furniture. It needs no trained model, and whole PDF extraction with it takes 5.0 ms a page with 92 MB of memory, where docling needs 970 ms and 1.86 GB. Docling makes fewer errors: after judging every disagreement, 48 for docling against 86 for the measure. The position-and-recurrence rule this measure replaced, which looked for lines that recur in the top and bottom bands of the page, found 41.9%.
+On 550 sampled pages, the code-length measure finds 97.3% of the items docling labels as furniture, and 87.3% of the lines it removes are lines docling labels as furniture. The position-and-recurrence rule this measure replaced, which looked for lines that recur in the top and bottom bands of the page, found 41.9%. The measure needs no trained model, and whole PDF extraction with it takes 5.0 ms a page with 92 MB of memory, where docling needs 970 ms and 1.86 GB. But docling makes fewer errors: after judging every disagreement, 48 for docling against 86 for the measure.
 
 ## Setup
 
@@ -10,7 +10,7 @@ On 550 sampled pages, the code-length measure finds 97.3% of the lines docling l
 
 The books come from a research library of 172 PDFs on social theory, political economy and technology. The candidates were its PDFs of 100 pages or more, less the books used while developing the measure (their SHA-256 in [furniture-detection/excluded.sha256](furniture-detection/excluded.sha256)): 31 books. [furniture-detection/pick_books.py](furniture-detection/pick_books.py) drew 22 of them with seed 20261105, keeping only books with a text layer, and 25 random pages from each, 550 pages in all. The list, [furniture-detection/books.tsv](furniture-detection/books.tsv), was frozen with a checksum before any scoring. The measure was not changed after any test run.
 
-The books are copyrighted and are not part of the repository. books.tsv names each by file name and SHA-256, so anyone with the same files can rerun the evaluation.
+The books are copyrighted, so they are not part of the repository. books.tsv names each by file name and SHA-256 instead, so anyone with the same files can rerun the evaluation.
 
 ### Systems
 
@@ -22,7 +22,7 @@ The books are copyrighted and are not part of the repository. books.tsv names ea
 
 ### The position-and-recurrence rule
 
-The position-and-recurrence rule, which this measure replaced, found furniture with fixed rules on where a line sits and how often it recurs:
+The position-and-recurrence rule found furniture with fixed rules on where a line sits and how often it recurs:
 
 1. Only lines in the top or bottom 12% of the page height can be furniture, measured at the middle of the line (`BAND_FRACTION` = 0.12).
 2. A line's key is its text lowercased with each run of digits replaced by `#`, so `Chapter 3 · 41` and `Chapter 3 · 43` share a key.
@@ -33,7 +33,7 @@ Each of those numbers fits some layouts and fails on others. A running head that
 
 ### Matching
 
-The measure and the rule report each furniture line with its page and box. docling reports items with boxes, which [furniture-detection/score.py](furniture-detection/score.py) moves from CropBox to MediaBox coordinates. A line and an item match when their boxes share at least half of the smaller box, or when the line's centre lies in the item's box grown by 2 points. Rotated text, whose boxes the two tools draw differently, matches when the letters and digits of one contain those of the other (at least four, not a bare number).
+The measure and the rule report each furniture line with its page and box. docling reports items rather than lines, with boxes that [furniture-detection/score.py](furniture-detection/score.py) moves from CropBox to MediaBox coordinates. A line and an item match when their boxes share at least half of the smaller box, or when the line's centre lies in the item's box grown by 2 points. Rotated text, whose boxes the two tools draw differently, matches when the letters and digits of one contain those of the other (at least four, not a bare number).
 
 Precision is the share of a system's furniture lines that match a docling item. Recall is the share of docling items that match one of the system's lines. One docling item can cover several lines, so the two are counted in different units.
 
@@ -69,11 +69,11 @@ Precision is the share of a system's furniture lines that match a docling item. 
 | Liboiron and Lepawsky, Discard Studies | 44 | 29 | 58 | 48 | 44 |
 | Biel, The Entropy of Capitalism | 40 | 11 | 35 | 34 | 39 |
 
-The position-and-recurrence rule finds none of docling's items in 9 of the 21 books that have any. The code-length measure misses more than 3 docling items only in Lukács.
+The position-and-recurrence rule finds none of docling's items in 9 of the 21 books that have any, while the code-length measure misses more than 3 docling items only in Lukács.
 
 ## Judging the disagreements
 
-docling is a reference, not ground truth: it misses some running heads and stamps and labels some chapter numbers as page headers. Each of the 134 disagreements between the measure and docling was judged from its text and position, and on the rendered page where those left it open, by rules written before the test:
+docling is a reference, not ground truth: it misses some running heads and stamps and labels some chapter numbers as page headers. Each of the 134 disagreements between the measure and docling was therefore judged from its text and position, and on the rendered page where those left it open, by rules written before the test:
 
 - Furniture: running heads and feet, folios, repository and licence stamps, chapter-opening citation and source notes, blank-page notices, continuation markers.
 - Text: headings, chapter numbers and labels, notes and citations, index entries, figure labels, equations, title-page text.
@@ -101,7 +101,7 @@ docling is a reference, not ground truth: it misses some running heads and stamp
 
 A system's reference after judging is docling's items judged furniture plus the furniture that system found and docling missed, which is why the position-and-recurrence rule's reference is smaller. One person judged, knowing which system produced each line, and lines on which the measure and docling agree were not checked.
 
-The two tools fail differently. docling rarely removes text but leaves stamps and some running heads in it. The measure misses little, but it removes short note, citation and index lines whose template recurs at the same place on a nearby page. For search and quotation that error costs more, since it takes real text away.
+docling rarely removes text but leaves stamps and some running heads in it. The measure fails the other way: it misses little, but it removes short note, citation and index lines whose template recurs at the same place on a nearby page. For search and quotation that error costs more, since it takes real text away.
 
 ## Cost
 
@@ -127,7 +127,7 @@ python docling_label.py books.tsv "$BOOKS" labels                    # with docl
 python3 -I score.py books.tsv "$BOOKS" labels "$EXTRACTOR" --verdicts verdicts.tsv
 ```
 
-`score.py --disagreements FILE` writes every disagreement with its text for judging. That file quotes the books and stays out of the repository.
+`score.py --disagreements FILE` writes every disagreement with its text for judging. That file quotes the books, so it stays out of the repository.
 
 ## References
 
