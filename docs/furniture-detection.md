@@ -18,7 +18,7 @@ Furniture is the part of a page that other pages already tell you. A running hea
 
 Video coding uses the same distinction. A frame is coded partly from its own pixels (intra prediction) and partly from the previous frame (inter prediction). The static background ends up coded from the previous frame, because that is cheaper. With a page in the place of a frame, furniture is what is cheaper to code from another page.
 
-Minimum description length makes this a decision rule: of several ways to describe the data, prefer the one that describes it in fewer bits. A description must pay for everything it uses, including which other page it copies from, so a copy wins only when the other page really predicts the line. [Background](#background) explains what a length in bits is and why comparing lengths is a fair test.
+Minimum description length makes this a decision rule: of several ways to describe the data, prefer the one that describes it in fewer bits. A description must pay for everything it uses, including which other page it copies from and the text that it copies, so a copy wins only when the other page really predicts the line. [Background](#background) explains what a length in bits is and why comparing lengths is a fair test.
 
 ## Overview: a running head and a folio
 
@@ -28,13 +28,13 @@ The crate's documentation example (in the README and at the top of `src/lib.rs`)
 2. **Number codes.** No other line in the book holds 42, so the number costs what writing out its two digits costs: 9.64 bits.
 3. **By its tokens.** Each token is coded from the token before it, by how often that pair occurs on the book's other lines. The other three running heads hold the same pairs, so the head costs 8.60 bits. The folio costs 3.41 bits for `#` and the end of the line, plus 9.64 bits for its number: 13.06 bits. The body line's word pairs occur nowhere else, so it costs 67.96 bits.
 4. **A copy of the line above.** The head has no line above it. Above the folio is body text, and above the body line is the head, each with another template. None of the three lines therefore has this description.
-5. **A copy from another page.** Page 1 holds the same head at the same place, so the head can be described as "the line at this place on the previous page": 2 bits to name the page and nothing more. The folio is "the line at this place on the previous page, its number moved on by one page": 2 bits for the page and 1.58 bits to say that the number moved, 3.58 bits in all. No other page holds the body line's template, so it has no copy.
+5. **A copy from another page.** Page 1 holds the same head at the same place, so the head can be described as "the line at this place on the previous page": 2 bits to name the page. The folio is "the line at this place on the previous page, its number moved on by one page": 2 bits for the page and 1.58 bits to say that the number moved, 3.58 bits in all. A copy also needs a text to copy, and that text has to be written once. The pages that can copy it share what it costs. Pages 1, 3 and 4 can all copy the head, so with page 2 it has four users, and each pays a quarter of the head's 8.60 bits: 2.15 bits, which makes the head's copy 4.15 bits. The folio's copy costs $3.58 + 13.06/4 = 6.85$ bits. No other page holds the body line's template, so it has no copy.
 6. **The decision.** Saying which description a line uses adds bits to its length, more for a description that few lines use. In this small book half the lines are heads and folios, so the copy and the token description are equally common and cost the same to name. Each line therefore takes its shorter description.
 
 | Page 2 | By its tokens | Copy of the line above | Copy from another page | Result |
 |---|---|---|---|---|
-| Running head | 8.60 | none | 2.00 | furniture |
-| Folio `42` | 13.06 | none | 3.58 | furniture |
+| Running head | 8.60 | none | 4.15 | furniture |
+| Folio `42` | 13.06 | none | 6.85 | furniture |
 | First body line | 67.96 | none | none | text |
 
 The functions run in this order:
@@ -77,9 +77,9 @@ $$L(x_1 \dots x_n) = \sum_{i=1}^{n} -\log_2 P(x_i \mid x_1 \dots x_{i-1}) = -\lo
 
 ### Comparing lengths compares explanations
 
-Two descriptions of the same line are two probability models of it. The shorter description comes from the model that gave the line the higher probability: $k$ bits shorter means $2^k$ times as probable. Page 2's folio in the four-page book costs 13.06 bits by its tokens and 3.58 bits as a copy of page 1's folio, so the copy makes the line $2^{9.47} \approx 710$ times as probable.
+Two descriptions of the same line are two probability models of it. The shorter description comes from the model that gave the line the higher probability: $k$ bits shorter means $2^k$ times as probable. Page 2's folio in the four-page book costs 13.06 bits by its tokens and 6.85 bits as a copy of the other pages' folios, so the copy makes the line $2^{6.21} \approx 74$ times as probable.
 
-The comparison is fair only if each description codes the whole line and pays for every choice it makes. A copy that named its page for free could try every page and keep the best fit, so its length would no longer say how well one other page predicts the line. The copy therefore pays for its page and for each of its numbers.
+The comparison is fair only if each description codes the whole line and pays for every choice it makes. A copy that named its page for free could try every page and keep the best fit, so its length would no longer say how well one other page predicts the line. The copy therefore pays for its page and for each of its numbers. It must also pay for the text it copies. Two pages that print the same line would otherwise each count as a copy of the other, and neither would pay for the text, which has to be written once, so [a copy from another page](#a-copy-from-another-page-copy_bits) charges each user a share of it.
 
 ### Minimum description length
 
@@ -305,27 +305,29 @@ A list describes itself this way: contents-page numbers, numbered callouts down 
 
 1. **Candidates.** The pages other than the line's own that hold some line with its template, ordered by how far they sit from the line's page in `pages`, the earlier page first on a tie.
 2. **Reference.** On a candidate page, the line nearest to this one by `distance`. If the reference holds another template, the page is skipped: holding the template somewhere on the page is not enough.
-3. **Cost.** The copy costs the offset to the candidate page, and for each number $\log_2 3$ bits to say whether it is the same as the reference's, moved on by the pages between them, or neither, with the number's own code in the last case.
-4. **Search and stop.** The pages are tried in candidate order and the cheapest copy is kept. Before a page is tried, the search stops if its offset plus $\log_2 3$ per number already reaches the bound: the shorter of the best copy so far and the line's length by its tokens.
+3. **Cost of one copy.** A copy from page $q$ costs the offset to the page, and for each number $\log_2 3$ bits to say whether it is the same as the reference's, moved on by the pages between them, or neither, with the number's own code in the last case.
+4. **Users and search.** The pages are tried in candidate order. A page whose copy costs less than the line's length by its tokens is a user of the line's text; the cheapest copy is kept, and the users are counted, the line's own page among them. Before a page is tried, the search stops if its offset plus $\log_2 3$ per number already reaches the length by tokens, because no later page can cost less.
+5. **Share of the text.** The copy needs a text to copy, written once, and each of its $u$ users pays $1/u$ of what that costs. The cost of the text is the line's own length by its tokens, $L_\text{tokens}$.
 
-With $p$ the line's page number and $q$ the candidate's, the cost is
+With $p$ the line's page number, $q$ the page of the cheapest copy and $u$ the number of users, the length is
 
-$$L_\text{copy} = 1 + E(|q - p|) + \sum_\text{numbers} \left( \log_2 3 + \begin{cases} 0 & \text{if it is the same, or the reference's value} + (p - q) \\ -\log_2 P(n) & \text{otherwise.} \end{cases} \right)$$
+$$L_\text{copy} = \underbrace{1 + E(|q - p|) + \sum_\text{numbers} \left( \log_2 3 + \begin{cases} 0 & \text{if it is the same, or the reference's value} + (p - q) \\ -\log_2 P(n) & \text{otherwise} \end{cases} \right)}_{c} + \frac{L_\text{tokens}}{u}.$$
 
-The result is the cheapest copy, or none when no copy is shorter than the line's length by its tokens.
+The result is that length, or none when it is not shorter than the line's length by its tokens, which needs at least one other user.
 
 `distance` compares the two lines at three pairs of anchors: their left edges, their centres and their right edges, each anchor taken at its own line's vertical centre. It returns the smallest of the three straight-line distances, so two lines aligned on any one edge are close. Right-aligned folios `9` and `10` at the same height, both ending at x = 540, are 6 points apart at their left edges and 3 at their centres but 0 at their right edges, so their distance is 0. A body line that ends at the same x = 540, 14 points higher, is at distance 14 from `10`.
 
-For the folio `42` on page 2 of the four-page book, the candidates are pages 1, 3 and 4. Page 1 is one page back, 2 bits. Its line nearest to the folio is its own folio `41`, at distance 0 and with the same template, and 42 is 41 moved on by one page, so the number costs only $\log_2 3$. The copy costs 3.58 bits and becomes the bound. Page 3 would cost at least $2 + 1.58 = 3.58$ bits, which does not beat the bound, so the search stops.
+For the folio `42` on page 2 of the four-page book, the candidates are pages 1, 3 and 4. Page 1 is one page back, 2 bits. Its line nearest to the folio is its own folio `41`, at distance 0 and with the same template, and 42 is 41 moved on by one page, so the number costs only $\log_2 3$: the copy costs 3.58 bits. Page 3 costs 3.58 bits and page 4, two pages away, 5.58 bits. All three are shorter than the folio's 13.06 bits by tokens, so the folio has four users, and its length as a copy is $3.58 + 13.06/4 = 6.85$ bits.
 
-In the list test, the choice of reference decides what the copy costs. For `(1)` on page 2, page 1 comes first. Page 1's list starts one row higher, so the line at the same place there is its `(2)`; 1 is neither 2 nor 2 + 1, so the number is written out and the copy costs $2 + 1.58 + 2.69 = 6.28$ bits. Page 3's list starts one row lower, so the nearest line there is its `(1)`, 14 points below, closer than the body line beside it at 30 points; the copy costs 3.58 bits. Page 4 is two pages away and would cost at least $4 + 1.58$ bits, so the search stops.
+The share is what keeps a line that two pages repeat from looking like furniture. In one book on critical realism, a table's header row (`Domains of Reality`, `Real`, `Actual`, `Empirical/Conceptual`) stood at the top of two successive pages and nowhere else near that place. Each page's `Domains of Reality` costs 23.3 bits by its tokens and 2 bits as a copy of the other, which saved 21 bits before the share was charged. With two users each pays 11.65 bits for the text, so the copy costs 13.65 bits and saves 9.7. A book with almost no furniture asks a copy to save much more than that (the next section gives the threshold), so the header row stays in the text. A running head that stands on hundreds of pages pays a few hundredths of a bit.
 
-**Why stopping early loses nothing.** Two facts make the stop exact.
+In the list test, the choice of reference decides what the copy costs. For `(1)` on page 2, page 1 comes first. Page 1's list starts one row higher, so the line at the same place there is its `(2)`; 1 is neither 2 nor 2 + 1, so the number is written out and the copy costs $2 + 1.58 + 2.69 = 6.28$ bits, which is shorter than the 6.90 bits by tokens. Page 3's list starts one row lower, so the nearest line there is its `(1)`, 14 points below, closer than the body line beside it at 30 points; the copy costs 3.58 bits. Page 4 copies it for 5.58 bits. Page 5, three pages away, would write the number out and cost $4 + 1.58 + 2.69 = 8.27$ bits, more than the tokens, so it is no user; page 6 would cost at least $6 + 1.58$ bits, so the search stops. There are four users, and the copy's length is $3.58 + 6.90/4 = 5.31$ bits.
 
-- Every page still to try costs at least its offset plus $\log_2 3$ per number. Pages are tried nearest first, so offsets do not shrink: once that floor reaches the bound, no later page can come in under it.
-- The bound may include the token length because a copy that is not shorter than the token description can be chosen only if copies are more common than token descriptions. To be chosen, a copy needs $L_\text{copy} - \log_2 \pi_\text{copy} < L_\text{tokens} - \log_2 \pi_\text{tokens}$, and with $L_\text{copy} \ge L_\text{tokens}$ that requires $\pi_\text{copy} > \pi_\text{tokens}$. While copies are no more common, the search need not find such a copy, so the token length serves as the bound from the start.
+**Why stopping early loses nothing.** Every page still to try costs at least its offset plus $\log_2 3$ per number. Pages are tried nearest first, so offsets do not shrink: once that floor reaches the line's length by its tokens, no later page can have a copy shorter than the tokens. Such a page is neither the cheapest copy nor a user, so the search misses nothing by stopping.
 
-The first fact assumes that the page offset grows with the distance in `pages`, as the documentation of `Page` says. That holds when page numbers run without gaps. When they skip, a page further along the slice on one side can be nearer by page number than a page on the other side, so the search can stop before reaching it. In a book numbered 96 to 100 and then 120 to 122, a stamp on page 100 with copies on pages 98 and 120 tries page 120 first, because it is next in the slice; if the stamp cost 9 bits by its tokens, the 10-bit offset would stop the search there, so the 4-bit copy from page 98 would never be tried.
+The tokens are the right limit because a copy that is not shorter than the token description can be chosen only if copies are more common than token descriptions. To be chosen, a copy needs $L_\text{copy} - \log_2 \pi_\text{copy} < L_\text{tokens} - \log_2 \pi_\text{tokens}$, and with $L_\text{copy} \ge L_\text{tokens}$ that requires $\pi_\text{copy} > \pi_\text{tokens}$. Copies are no more common in a book, so such a copy is given up.
+
+The stop assumes that the page offset grows with the distance in `pages`, as the documentation of `Page` says. That holds when page numbers run without gaps. When they skip, a page further along the slice on one side can be nearer by page number than a page on the other side, so the search can stop before reaching it. In a book numbered 96 to 100 and then 120 to 122, a stamp on page 100 with copies on pages 98 and 120 tries page 120 first, because it is next in the slice; if the stamp cost 9 bits by its tokens, the 10-bit offset would stop the search there, so the 4-bit copy from page 98 would never be tried.
 
 ### Why positions cost nothing
 
@@ -351,10 +353,10 @@ Where the line has a column description, the copy must beat that one too, by mor
 The three books above give these shares and thresholds:
 
 - In the four-page book, 8 lines take their tokens, none the line above and 8 a copy. The shares are $8.5/17.5 = 0.486$, $0.5/17.5 = 0.029$ and $0.486$, the threshold is 0 bits, and the second round changes nothing.
-- In `running_heads_and_folios_are_furniture`, 24 of the 384 lines are heads and folios. The copy share is $24.5/385.5 = 0.064$ against $0.935$ for tokens, a threshold of 3.88 bits. The running head on page 5 saves 21.79 bits by copying and the folio 14.23 bits, both more than that threshold.
-- In the list test, which has no furniture, hard EM takes three rounds to settle. In the first round, with equal shares, the twelve items `(1)` take the copy from another page, which is up to 3.32 bits shorter than their tokens. The recount gives the copy a share of $12.5/433.5 = 0.029$ against $0.832$ for tokens, a threshold of 4.85 bits, so in the second round all twelve return to their tokens. The copy share falls to $0.5/433.5 = 0.0012$, the threshold rises to 9.54 bits, and the third round changes nothing.
+- In `running_heads_and_folios_are_furniture`, 24 of the 384 lines are heads and folios. The copy share is $24.5/385.5 = 0.064$ against $0.935$ for tokens, a threshold of 3.88 bits. The running head on page 5 saves 19.81 bits by copying (23.79 bits by tokens, 3.98 as a copy) and the folio 12.74 bits (17.81 and 5.07), both more than that threshold.
+- In the list test, which has no furniture, hard EM takes three rounds to settle. In the first round, with equal shares, nine of the twelve items `(1)` take the copy from another page, which is up to 1.59 bits shorter than their tokens. The recount gives the copy a share of $9.5/433.5 = 0.022$ against $0.839$ for tokens, a threshold of 5.26 bits, so in the second round all nine return to their tokens. The copy share falls to $0.5/433.5 = 0.0012$, the threshold rises to 9.54 bits, and the third round changes nothing.
 
-Soft EM would have left those twelve items split. With the second round's shares, an item `(1)` whose copy saves 3.32 bits has a responsibility of 0.26 for the copy and 0.74 for its tokens, so each would keep about a quarter of a line in the copy share. Hard EM ends with every line wholly in one description and the shares counted from those choices.
+Soft EM would have left those nine items split. With the second round's shares, an item `(1)` whose copy saves 1.59 bits has a responsibility of 0.07 for the copy and 0.93 for its tokens, so each would keep about a fourteenth of a line in the copy share. Hard EM ends with every line wholly in one description and the shares counted from those choices.
 
 ## Two lines from real books
 
@@ -364,8 +366,10 @@ From Hall, *Selected Writings on Marxism*, page 365, the folio and running foot 
 |---|---|
 | By its tokens | 37.4 |
 | As a copy from page −2 (`352 \| Index`): offset 4, number moved on by 2 pages, $\log_2 3$ | 5.6 |
+| Its share of the copied text: 6 users, $37.4/6$ | 6.2 |
+| Copy in all | 11.8 |
 
-In this book the token description is about 18 times as common as the copy, so its shares ask a copy to save more than 4.15 bits. This copy saves 31.8 bits, far more, so the line is furniture.
+In this book the token description is about 18 times as common as the copy, so its shares ask a copy to save more than 4.18 bits. This copy saves 25.6 bits, far more, so the line is furniture.
 
 From Weatherby, *Language Machines*, page 222, a folio `213` at the foot of the page, a place where the nearest other folio is 18 pages back:
 
@@ -373,8 +377,10 @@ From Weatherby, *Language Machines*, page 222, a folio `213` at the foot of the 
 |---|---|
 | By its tokens | 15.0 |
 | As a copy from page −18, the nearest page with a folio at the same place: offset 10, number moved, $\log_2 3$ | 11.6 |
+| Its share of the copied text: 5 users, $15.0/5$ | 3.0 |
+| Copy in all | 14.6 |
 
-The copy saves 3.4 bits, below the 4.40 bits this book's shares ask for, so the folio stays in the text, which the evaluation counts as a miss.
+The copy saves 0.4 bits, below the 4.42 bits this book's shares ask for, so the folio stays in the text, which the evaluation counts as a miss.
 
 ## Why a measure instead of rules
 
@@ -384,10 +390,11 @@ The position-and-recurrence rule this measure replaced called a line furniture w
 
 - The measure compares pages, so it cannot judge a one-page document. A document needs several pages that share furniture.
 - A copy needs the same template. When the PDF reader that builds the lines extracts a letter-spaced running head with different spacing on each page (`O NTO LOG Y`, `ON TO LOG Y`), no page holds a copy, so the head stays in the text.
-- Text that really does recur at the same place on nearby pages, such as code that repeats across listings, short note and citation lines with a common pattern, or a title page printed twice, is described as a copy, so it is taken for furniture.
+- Text that recurs at the same place on many pages, such as code that repeats across listings, or short note and citation lines whose pattern is common (`25. Marx 1993, p. 258.`), is described as a copy whose text many pages share, so it is taken for furniture. A line that only a few pages repeat, such as a table header on two pages or a note that cites the same work twice, pays a large share of its text and stays.
 - Furniture whose text changes on every page without a number that moves with the page, such as a source note that names a different journal at each chapter opening, has no copy, so it stays.
 - A folio printed somewhere else on a few pages, such as chapter openings, can only copy from a distant page, so it may stay in the text.
-- The search for copies stops at the length of the token description. This is exact while copies are no more common than token descriptions, which holds for books. Its other stop assumes that page numbers grow with position in `pages` without gaps; where they skip, the search can stop before a page that is nearer by number on the other side.
+- A running head or folio that only a few pages can use pays a large share of its text and stays, as the line a few pages repeat does. Measured on twelve books, this left some folios of the front matter and of chapter openings in the text, as well as a short running head on the pages at a book's start and end.
+- The search for copies stops at the length of the token description. This is exact while copies are no more common than token descriptions, which holds for books. The stop on offsets assumes that page numbers grow with position in `pages` without gaps; where they skip, the search can stop before a page that is nearer by number on the other side.
 
 ## Cost
 

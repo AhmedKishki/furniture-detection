@@ -10,7 +10,7 @@ Add the crate to `Cargo.toml`; it needs Rust 1.92 or later.
 
 ```toml
 [dependencies]
-furniture-detection = "0.1"
+furniture-detection = "0.2"
 ```
 
 This program builds a book of four pages, each with a running head, one line of text and a page number, and finds the head and the page number of every page.
@@ -58,7 +58,7 @@ The public API is the function `furniture` and the two types it reads, `Page` an
 pub fn furniture(pages: &[Page]) -> HashSet<(u32, usize)>
 ```
 
-Finds the furniture lines of a document, the lines that other pages predict. Each line is described in three ways, by its own words, as a copy of the line above it on its page, or as a copy of the nearest line on another page, and it is furniture when the copy from another page is the shortest description in bits. A copy may move a number on by the difference between the two pages' numbers, which is how page numbers are found. The copy of the line above lets a numbered list describe itself, so a list that recurs on nearby pages can be described within its page instead of as furniture.
+Finds the furniture lines of a document, the lines that other pages predict. Each line is described in three ways, by its own words, as a copy of the line above it on its page, or as a copy of the nearest line on another page, and it is furniture when the copy from another page is the shortest description in bits. A copy may move a number on by the difference between the two pages' numbers, which is how page numbers are found. A copy also pays its share of what the copied text costs, split among the pages that copy it, so a line that only a few pages repeat, such as a table header on two pages, stays in the text. The copy of the line above lets a numbered list describe itself, so a list that recurs on nearby pages can be described within its page instead of as furniture.
 
 Every weight in these descriptions is fitted to `pages`, so the function has no settings. The weights, and the counts of words and numbers that the descriptions use, come from every page, so a line's verdict depends on the other pages. Pass the whole document in one call, because part of it can give a different result and a single page has no furniture at all.
 

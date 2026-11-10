@@ -171,7 +171,9 @@ const EM_ROUNDS: usize = 64;
 /// A line is furniture when its shortest description is a copy of the nearest
 /// line on another page, shorter than a description by its own words and than
 /// a copy of the line above it. A copy may move a number on by the difference
-/// between the two pages' numbers, which is how page numbers are found. The
+/// between the two pages' numbers, which is how page numbers are found. A copy
+/// also pays its share of what the copied text costs, split among the pages
+/// that copy it, so a line that only a few pages repeat is not furniture. The
 /// descriptions' weights are fitted to `pages` and their counts taken from it,
 /// so a line's verdict depends on every other page: pass the whole document,
 /// in reading order and numbered by position as [`Page`] describes. A single
@@ -582,8 +584,17 @@ fn minimize_log(f: impl Fn(f64) -> f64) -> f64 {
 }
 
 /// Bits to describe each line as a copy of the nearest line on another page,
-/// for the cheapest such page; `None` when no page offers a copy shorter than
-/// the line's description by its tokens.
+/// for the cheapest such page, plus the line's share of what the copied text
+/// costs; `None` when that is not shorter than the line's description by its
+/// tokens.
+///
+/// A copy needs a text to copy, and that text has to be written down once.
+/// The lines that copy it are its users, and each pays an equal part of what
+/// writing it costs, which is this line's length by its tokens: `copy +
+/// tokens / users`. A user is the line itself, or a page where the line's
+/// nearest line has the same template and a copy of it is shorter than the
+/// tokens. A running head with users on hundreds of pages pays next to
+/// nothing, while a line that two pages share pays half of it.
 fn copy_bits(
     texts: &[Text],
     page_count: usize,
@@ -611,12 +622,12 @@ fn copy_bits(
         .iter()
         .enumerate()
         .map(|(i, line)| {
-            // A copy longer than the tokens never wins while copies are the
-            // rarer description, so the search stops there; pages are tried
-            // nearest first, and the offset only grows.
+            // A page whose copy is not shorter than the tokens is neither a
+            // user nor the cheapest; pages are tried nearest first, and the
+            // offset only grows.
             let floor = line.numbers.len() as f64 * choice;
             let mut best: Option<f64> = None;
-            let bound = |best: Option<f64>| best.map_or(within[i], |b| b.min(within[i]));
+            let mut users = 1.0;
             let mut candidates: Vec<usize> = pages_with[&line.template]
                 .iter()
                 .copied()
@@ -626,7 +637,7 @@ fn copy_bits(
             for at in candidates {
                 let offset = texts[by_page[at][0]].page as i64 - line.page as i64;
                 let offset_bits = 1.0 + gamma_bits(offset.unsigned_abs());
-                if offset_bits + floor >= bound(best) {
+                if offset_bits + floor >= within[i] {
                     break;
                 }
                 let Some(r) = nearest(line, at) else { continue };
@@ -642,11 +653,13 @@ fn copy_bits(
                         .zip(&numbers[i])
                         .map(|((n, m), &written)| from_reference(n, m, -offset, written) + choice)
                         .sum::<f64>();
-                if bits < bound(best) {
-                    best = Some(bits);
+                if bits < within[i] {
+                    users += 1.0;
+                    best = Some(best.map_or(bits, |b| b.min(bits)));
                 }
             }
-            best
+            best.map(|bits| bits + within[i] / users)
+                .filter(|&bits| bits < within[i])
         })
         .collect()
 }
@@ -846,6 +859,71 @@ mod tests {
             .collect();
 
         assert!(furniture(&pages).is_empty());
+    }
+
+    /// The pages of a book of `count` pages whose body lines are prose, with
+    /// the extra lines each `(page, text, left, top)` adds. None of the extra
+    /// lines is furniture in the tests that use this, unless said.
+    fn book_with(count: u32, extra: &[(u32, &str, f32, f32)]) -> Vec<Page> {
+        (1..=count)
+            .map(|n| {
+                let mut lines = prose(n, 0..30, 60.0);
+                for &(at, text, left, top) in extra {
+                    if at == n {
+                        lines.push(line(text, left, top, 90.0));
+                    }
+                }
+                page(n, lines)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_table_header_repeated_on_the_next_page_is_not_furniture() {
+        let header = [
+            ("waste form", 60.0),
+            ("order", 160.0),
+            ("matter power", 260.0),
+        ];
+        let extra: Vec<(u32, &str, f32, f32)> = [14, 15]
+            .iter()
+            .flat_map(|&n| {
+                header
+                    .iter()
+                    .map(move |&(text, left)| (n, text, left, 40.0))
+            })
+            .collect();
+
+        assert!(furniture(&book_with(30, &extra)).is_empty());
+    }
+
+    #[test]
+    fn notes_of_one_shape_on_two_distant_pages_are_not_furniture() {
+        let extra = [
+            (5, "26 value of capital, 78.", 60.0, 600.0),
+            (25, "44 value of capital, 12.", 60.0, 600.0),
+        ];
+
+        assert!(furniture(&book_with(40, &extra)).is_empty());
+    }
+
+    #[test]
+    fn a_contents_entry_and_the_heading_it_lists_are_not_furniture() {
+        let extra = [
+            (3, "4.1 money and work", 60.0, 303.0),
+            (20, "4.1 money and work", 60.0, 306.0),
+        ];
+
+        assert!(furniture(&book_with(40, &extra)).is_empty());
+    }
+
+    #[test]
+    fn a_long_stamp_on_two_pages_is_furniture() {
+        let stamp = "downloaded from the market of social energy order and place by the history of time and work";
+        let extra = [(3, stamp, 60.0, 620.0), (4, stamp, 60.0, 620.0)];
+
+        let expected: HashSet<(u32, usize)> = [(3, 30), (4, 30)].into();
+        assert_eq!(furniture(&book_with(40, &extra)), expected);
     }
 
     #[test]

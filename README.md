@@ -22,7 +22,7 @@ Furniture is what other pages already tell you: the running head on page 41 repe
 
 1. word by word, from how often its words and word pairs occur in the document;
 2. as a copy of the line above, which is how a numbered list describes itself;
-3. as a copy of the line at the same place on another page, with any number moved on by the pages in between.
+3. as a copy of the line at the same place on another page, with any number moved on by the pages in between, plus its share of what the copied text costs, which the pages that copy it split.
 
 A line is furniture when the copy from another page is shortest. Every cost is fitted to the document at hand, so the crate adapts to each layout by itself. [docs/furniture-detection.md](docs/furniture-detection.md) explains the method from the basics.
 
@@ -32,7 +32,7 @@ Add it to `Cargo.toml`; it needs Rust 1.92 or later.
 
 ```toml
 [dependencies]
-furniture-detection = "0.1"
+furniture-detection = "0.2"
 ```
 
 ## Usage
