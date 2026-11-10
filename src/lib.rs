@@ -179,6 +179,19 @@ const EM_ROUNDS: usize = 64;
 /// in reading order and numbered by position as [`Page`] describes. A single
 /// page has no furniture.
 ///
+/// The choice among the descriptions can have two fixed points when a book's
+/// copies save only a few bits each. If the shares count those lines as
+/// copies, copying is common and cheap to name, so the lines keep their copy;
+/// if the shares count them as text, copying is rare and dear to name, so the
+/// lines stay text. A book can agree with both states. In one book, six lines
+/// (a contents entry and the heading it lists, and two cells of a table header
+/// that stood on two successive pages) saved 9.4 to 10.1 bits each after their
+/// share. A copy had to save 14.4 bits where none of the lines is a copy and
+/// 10.7 where those six are, so the book settled with all six as text. It sat
+/// within a bit of the point where the six would have held themselves as
+/// copies too, and then the start would decide. The search starts with equal
+/// shares, so a given input always ends the same way.
+///
 /// Returns the `(page, line index)` pair of each furniture line: its
 /// [`Page::page`] and its index in that page's [`Page::lines`]. The set has no
 /// order.
@@ -593,8 +606,19 @@ fn minimize_log(f: impl Fn(f64) -> f64) -> f64 {
 /// writing it costs, which is this line's length by its tokens: `copy +
 /// tokens / users`. A user is the line itself, or a page where the line's
 /// nearest line has the same template and a copy of it is shorter than the
-/// tokens. A running head with users on hundreds of pages pays next to
-/// nothing, while a line that two pages share pays half of it.
+/// tokens. Users are counted by the cost of the copy before the share is
+/// added, so the share does not decide who is a user. They are the pages that
+/// could copy the line, not the pages that finally do, so a template that
+/// stands on many pages is discounted twice, once in its tokens, which count
+/// its other lines, and once in its share. A running head pays about
+/// `2^(-t/2)` of its length `t` by tokens: the pages whose offset costs less
+/// than `t` are its users, and they number about `2^(t/2)`.
+///
+/// The pages that hold the template come in ascending order, so the search
+/// finds the line's own page by bisection and walks outward from it on both
+/// sides, nearest first and the lower page first when both are as far; on a
+/// page, `nearest` does the same over the lines sorted by y. Neither sorts
+/// anything for each line.
 fn copy_bits(
     texts: &[Text],
     page_count: usize,
@@ -610,12 +634,61 @@ fn copy_bits(
             list.push(t.at);
         }
     }
-    let nearest = |line: &Text, at: usize| -> Option<usize> {
-        by_page[at].iter().copied().min_by(|&a, &b| {
-            distance(line, &texts[a])
-                .total_cmp(&distance(line, &texts[b]))
-                .then(a.cmp(&b))
+    // Each page's lines again, by y, so that `nearest` can start at a line's
+    // own y. A page with a y that is not finite is scanned whole instead.
+    let by_y: Vec<Vec<usize>> = by_page
+        .iter()
+        .map(|page| {
+            let mut sorted = page.clone();
+            sorted.sort_by(|&a, &b| texts[a].y.total_cmp(&texts[b].y));
+            sorted
         })
+        .collect();
+    let all_finite: Vec<bool> = by_page
+        .iter()
+        .map(|page| page.iter().all(|&k| texts[k].y.is_finite()))
+        .collect();
+    // The line of page `at` nearest to `line`, the lower index first on a tie.
+    let nearest = |line: &Text, at: usize| -> Option<usize> {
+        if !(all_finite[at] && line.y.is_finite()) {
+            return by_page[at].iter().copied().min_by(|&a, &b| {
+                distance(line, &texts[a])
+                    .total_cmp(&distance(line, &texts[b]))
+                    .then(a.cmp(&b))
+            });
+        }
+        // A distance is at least the gap in y, so once the next line up and
+        // the next line down are both farther in y than the best distance,
+        // no line farther out can tie or beat it.
+        let sorted = &by_y[at];
+        let gap = |k: usize| (texts[k].y - line.y).abs();
+        let start = sorted.partition_point(|&k| texts[k].y.total_cmp(&line.y).is_lt());
+        let (mut down, mut up) = (start, start);
+        let mut best: Option<(f64, usize)> = None;
+        loop {
+            let below = down.checked_sub(1).map(|d| sorted[d]);
+            let above = sorted.get(up).copied();
+            let (k, take_below) = match (below, above) {
+                (None, None) => break,
+                (Some(b), None) => (b, true),
+                (None, Some(a)) => (a, false),
+                (Some(b), Some(a)) if gap(b) <= gap(a) => (b, true),
+                (Some(_), Some(a)) => (a, false),
+            };
+            if best.is_some_and(|(d, _)| gap(k) > d) {
+                break;
+            }
+            let found = (distance(line, &texts[k]), k);
+            if best.is_none_or(|(d, i)| found.0.total_cmp(&d).then(found.1.cmp(&i)).is_lt()) {
+                best = Some(found);
+            }
+            if take_below {
+                down -= 1;
+            } else {
+                up += 1;
+            }
+        }
+        best.map(|(_, k)| k)
     };
     let choice = 3f64.log2();
     texts
@@ -628,13 +701,27 @@ fn copy_bits(
             let floor = line.numbers.len() as f64 * choice;
             let mut best: Option<f64> = None;
             let mut users = 1.0;
-            let mut candidates: Vec<usize> = pages_with[&line.template]
-                .iter()
-                .copied()
-                .filter(|&at| at != line.at)
-                .collect();
-            candidates.sort_by_key(|&at| (at as i64 - line.at as i64).abs());
-            for at in candidates {
+            // The pages that hold the template, ascending, with the line's
+            // own among them: two cursors walk outward from it, the lower
+            // page first when both sides are as far.
+            let pages = &pages_with[&line.template];
+            let own = pages.partition_point(|&at| at < line.at);
+            let (mut down, mut up) = (own, own + 1);
+            loop {
+                let below = down.checked_sub(1).map(|d| pages[d]);
+                let above = pages.get(up).copied();
+                let (at, take_below) = match (below, above) {
+                    (None, None) => break,
+                    (Some(b), None) => (b, true),
+                    (None, Some(a)) => (a, false),
+                    (Some(b), Some(a)) if line.at - b <= a - line.at => (b, true),
+                    (Some(_), Some(a)) => (a, false),
+                };
+                if take_below {
+                    down -= 1;
+                } else {
+                    up += 1;
+                }
                 let offset = texts[by_page[at][0]].page as i64 - line.page as i64;
                 let offset_bits = 1.0 + gamma_bits(offset.unsigned_abs());
                 if offset_bits + floor >= within[i] {
@@ -942,5 +1029,76 @@ mod tests {
         lines.push(line("11", 210.0, 600.0, 12.0));
 
         assert!(furniture(&[page(1, lines)]).is_empty());
+    }
+
+    #[test]
+    fn three_pages_that_carry_a_line_make_it_furniture_where_two_leave_it_text() {
+        let text = "waste form order";
+        let on = |pages: &[u32]| {
+            let extra: Vec<(u32, &str, f32, f32)> =
+                pages.iter().map(|&n| (n, text, 60.0, 620.0)).collect();
+            furniture(&book_with(40, &extra))
+        };
+
+        assert!(on(&[3, 4]).is_empty());
+        let expected: HashSet<(u32, usize)> = [(3, 30), (4, 30), (5, 30)].into();
+        assert_eq!(on(&[3, 4, 5]), expected);
+    }
+
+    #[test]
+    fn a_page_farther_away_than_the_first_copy_found_is_a_user() {
+        let text = "waste form order";
+        let extra = |pages: &[u32]| -> Vec<(u32, &str, f32, f32)> {
+            pages.iter().map(|&n| (n, text, 60.0, 620.0)).collect()
+        };
+
+        // Each of pages 3 and 4 has the other as its nearest copy, and two
+        // users leave the line as text. Page 8 is farther than that copy,
+        // yet it is a third user and tips both, while its own nearest copy
+        // is too far to pay for itself.
+        assert!(furniture(&book_with(40, &extra(&[3, 4]))).is_empty());
+        let expected: HashSet<(u32, usize)> = [(3, 30), (4, 30)].into();
+        assert_eq!(furniture(&book_with(40, &extra(&[3, 4, 8]))), expected);
+    }
+
+    #[test]
+    fn templates_on_every_page_with_numbers_that_never_repeat_are_found_quickly() {
+        // Twenty rows of a table run through every page, each row with its
+        // own template and two numbers of its own, so no copy is cheap
+        // enough to end the search early and each row weighs every other page
+        // as a copy. Taking the pages and the lines of each page in order of
+        // distance keeps that to a second or two in a debug build; cloning
+        // and sorting the candidate pages for every line and comparing it
+        // with every line of each page took about seven times as long.
+        const ROWS: [&str; 20] = [
+            "alpha", "bravo", "charlie", "delta", "echo", "foxtrot", "golf", "hotel", "india",
+            "juliet", "kilo", "lima", "mike", "november", "oscar", "papa", "quebec", "romeo",
+            "sierra", "tango",
+        ];
+        let pages: Vec<Page> = (1..=300)
+            .map(|n| {
+                let mut lines: Vec<Line> = ROWS
+                    .iter()
+                    .enumerate()
+                    .map(|(r, name)| {
+                        let (a, b) = (100_003 * n + 7 * r as u32, 982_451 * n + 13 * r as u32);
+                        line(
+                            &format!("{name} reading {a} value {b}"),
+                            72.0,
+                            40.0 + 12.0 * r as f32,
+                            200.0,
+                        )
+                    })
+                    .collect();
+                lines.extend(prose(n, 20..60, 60.0));
+                page(n, lines)
+            })
+            .collect();
+
+        let started = std::time::Instant::now();
+        furniture(&pages);
+        let elapsed = started.elapsed();
+
+        assert!(elapsed.as_secs() < 4, "took {elapsed:?}");
     }
 }

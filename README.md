@@ -10,11 +10,12 @@ On 550 pages from 22 books, with every disagreement judged by hand:
 
 | | Furniture found | Correct flags | Time per page |
 |---|---|---|---|
-| furniture-detection | 98% | 92% | 5 ms |
+| furniture-detection 0.2.0, an estimate | 98% | 96% | |
+| furniture-detection 0.1.1 | 98% | 92% | 5 ms |
 | docling's layout model | 95% | 99% | 970 ms |
 | Recurrence rule | 44% | 97% | |
 
-The recurrence rule takes a line for furniture when it repeats, digits aside, in the top or bottom 12% of at least half the pages, which is the kind of rule PDF converters such as [pdf-inspector](https://crates.io/crates/pdf-inspector) and [pdf-markdown](https://crates.io/crates/pdf-markdown) use. [The evaluation](evals/furniture-detection.md) gives the details.
+The 0.2.0 row is an estimate rescored from the evaluation's frozen verdicts, not a run of it. The recurrence rule takes a line for furniture when it repeats, digits aside, in the top or bottom 12% of at least half the pages, which is the kind of rule PDF converters such as [pdf-inspector](https://crates.io/crates/pdf-inspector) and [pdf-markdown](https://crates.io/crates/pdf-markdown) use. [The evaluation](evals/furniture-detection.md) gives the details.
 
 ## How it works
 
