@@ -2,6 +2,12 @@
 
 Every change to furniture-detection gets a version and an entry here, newest first. Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html): documentation and fixes that keep the behaviour bump the patch number, and new features or changed behaviour bump the minor number while the crate is at 0.x. The entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.2.1] - 2026-11-13
+
+### Removed
+
+- The scores given for 0.2.0 in the README, the evaluation and this changelog. They were rescored from the evaluation's frozen verdicts, not measured by running the evaluation. The evaluation's scores are those measured on 0.1.1.
+
 ## [0.2.0] - 2026-11-13
 
 ### Changed
@@ -9,8 +15,7 @@ Every change to furniture-detection gets a version and an entry here, newest fir
 - A copy from another page now pays its share of the text it copies. The text has to be written once, so the pages that can copy it split its cost: a copy's length is its own cost plus the line's length by its tokens divided by the number of users, the line's own page included. A user is a page whose copy is shorter than the tokens. Before, two pages that printed the same line each counted as a copy of the other and neither paid for the text, so a table header repeated on two pages, a note that cites the same work twice, or a contents entry and the heading it lists were removed as furniture. A running head or folio on many pages pays next to nothing and is still found, and a stamp that is long enough to cost much by its tokens is still found on two pages.
 - The search for copies stops at the length of the token description alone, because it now also counts users.
 - The search for copies now walks the pages that hold a line's template outward from the line's own page, and the lines of a page outward from the line's y, instead of cloning and sorting the candidate pages for every line and comparing the line with every line of each page. No result changes. A book that carries a template with numbers that never repeat on every page, such as a data table, cost a number of steps growing with the square of its page count, each step a search among all the lines of a page; each step is now logarithmic in them, and the crate's new test shows 300 such pages of 60 lines taking about a second and a half in a debug build where cloning, sorting and comparing with every line took about ten seconds.
-- The estimated effect on the 550 sampled pages of the evaluation is in [evals/furniture-detection.md](evals/furniture-detection.md): the lines judged to be text that the measure removed fall from 72 to 35, and three furniture lines are lost. It is an estimate rescored from the evaluation's frozen verdicts, not a run of the evaluation. On ten other PDFs, where every changed line was judged by hand once and the judgment cannot be reproduced from the repository, about 40 true furniture lines were kept as text and about 520 text lines were no longer removed, another estimate.
-- The documentation says that users are counted before the share is added, that a popular template is discounted twice, once in its tokens and once in its share, and that the choice among the descriptions can have two fixed points when a book's copies save only a few bits. The README table and the cost figures say which numbers are estimates and which were measured before 0.2.0.
+- The documentation says that users are counted before the share is added, that a popular template is discounted twice, once in its tokens and once in its share, and that the choice among the descriptions can have two fixed points when a book's copies save only a few bits.
 
 ### Added
 

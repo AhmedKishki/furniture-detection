@@ -8,10 +8,9 @@ With every disagreement between the measure and docling judged by hand, the meas
 |---|---|---|---|
 | docling | 0.991 (731 of 738) | 0.947 (731 of 772) | 48 |
 | Code-length measure, version 0.1.1 | 0.919 (825 of 898) | 0.983 (759 of 772) | 86 |
-| Code-length measure, version 0.2.0, an estimate | 0.959 (810 of 845) | 0.979 (756 of 772) | 51 |
 | Position-and-recurrence rule | 0.971 (335 of 345) | 0.441 (335 of 759) | 434 |
 
-The row for version 0.2.0 is an estimate rescored from the frozen verdicts, not a run of the evaluation, as [After the share of the copied text](#after-the-share-of-the-copied-text) explains. The measure is far cheaper: whole PDF extraction with it took 5.0 ms a page before version 0.2.0, where docling takes 970 ms.
+The measure is far cheaper: whole PDF extraction with it took 5.0 ms a page before version 0.2.0, where docling takes 970 ms.
 
 ## Setup
 
@@ -95,17 +94,6 @@ docling is a reference, not ground truth: it misses some running heads and stamp
 In the judged scores at the top, a system's reference is docling's items judged furniture plus the furniture that system found and docling missed, which is why the rule's reference is smaller. One person judged, knowing which system produced each line. Lines on which the measure and docling agree were not checked.
 
 docling rarely removes text but leaves stamps and some running heads in it. The measure fails the other way: it misses little but removes short note, citation and index lines whose template recurs at the same place on a nearby page. For search and quotation that error costs more, since it takes real text away.
-
-## After the share of the copied text
-
-Version 0.2.0 makes a copy pay its share of the text it copies ([docs/furniture-detection.md](../docs/furniture-detection.md#a-copy-from-another-page-copy_bits)). The numbers below were measured after that change, on the same 550 pages, and are not a full rescoring: docling's labels are not part of the repository and docling was not rerun. They use the verdicts above instead, so they cover only the lines the verdicts judged. The lines come from a later PDF reader that builds lines from the pages, which differs a little from the reader behind the tables above, so the first row is 886 lines where those tables count 898.
-
-| Measure on the 550 pages | Furniture lines | Judged text (wrongly removed) | Judged furniture or not in the verdicts |
-|---|---|---|---|
-| Before the change | 886 | 72 | 814 |
-| After the change | 845 | 35 | 810 |
-
-The change removed 41 lines from the furniture, 37 of them judged text. The other four were not in the verdicts, which means they matched docling's items or were new to the reader: a letter-spaced running head on a page of Lukács, `Index` and a foot `peripheries` in Datta and Hoefsloot, which are furniture, and `contempor`, the start of a hyphenated body line in Mezzadra and Neilson, which is text. So three furniture lines were lost, and recall falls by at most 3 of 772 items, from 0.983 to 0.979, while precision after judging rises from 0.919 to 0.959. These are estimates from the verdicts, not a rescoring with docling. The version 0.2.0 row of the table at the top takes them as they stand: 810 of the 845 lines are correct, which gives the precision, and recall counts 759 of 772 less the three lost lines, 756. The 35 text lines still removed and the 16 items still missed are its 51 errors.
 
 ## Cost
 
